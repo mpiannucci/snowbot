@@ -7,6 +7,171 @@ interface Location {
 	lon: number;
 }
 
+interface EdrMetadata {
+	extent: {
+		init_time: {
+			interval: [string, string];
+		};
+	};
+}
+
+interface CovJsonResponse {
+	domain: {
+		axes: {
+			t: { values: string[] | string[][] };
+			x: { values: number[] | number[][] };
+			y: { values: number[] | number[][] };
+		};
+	};
+	ranges: {
+		categorical_snow_surface: {
+			axisNames: string[];
+			shape: number[];
+			values: number[];
+		};
+	};
+}
+
+interface SnowForecast {
+	location: Location;
+	snowTimestamps: string[];
+}
+
+const EDR_BASE_URL =
+	"https://compute.earthmover.io/v1/services/edr/earthmover/snowbot/main/edr";
+
+// Helper function to fetch all locations from KV
+async function getAllLocations(kv: KVNamespace): Promise<Location[]> {
+	const list = await kv.list();
+	const locations: Location[] = [];
+
+	for (const key of list.keys) {
+		const value = await kv.get(key.name);
+		if (value) {
+			locations.push(JSON.parse(value));
+		}
+	}
+
+	return locations;
+}
+
+// Fetch latest init_time from EDR metadata
+async function getLatestInitTime(fluxToken: string): Promise<string> {
+	const response = await fetch(`${EDR_BASE_URL}/`, {
+		headers: {
+			Authorization: `Bearer ${fluxToken}`,
+		},
+	});
+	if (!response.ok) {
+		throw new Error(`Failed to fetch EDR metadata: ${response.status}`);
+	}
+	const metadata: EdrMetadata = await response.json();
+	// interval[1] contains the latest init_time
+	return metadata.extent.init_time.interval[1];
+}
+
+// Build MULTIPOINT WKT string from locations
+// WKT uses (lon lat) order, not (lat lon)
+function buildMultipointWkt(locations: Location[]): string {
+	const points = locations.map((loc) => `${loc.lon} ${loc.lat}`).join(", ");
+	return `MULTIPOINT(${points})`;
+}
+
+// Query EDR position endpoint with MULTIPOINT coordinates
+async function queryEdrPosition(
+	coords: string,
+	initTime: string,
+	fluxToken: string
+): Promise<CovJsonResponse> {
+	const params = new URLSearchParams({
+		f: "cf_covjson",
+		"parameter-name": "categorical_snow_surface",
+		crs: "EPSG:4326",
+		method: "nearest",
+		init_time: initTime,
+		coords: coords,
+	});
+
+	const url = `${EDR_BASE_URL}/position?${params.toString()}`;
+	console.log("Querying EDR:", url);
+
+	const response = await fetch(url, {
+		headers: {
+			Authorization: `Bearer ${fluxToken}`,
+		},
+	});
+	if (!response.ok) {
+		const text = await response.text();
+		throw new Error(`EDR query failed: ${response.status} - ${text}`);
+	}
+
+	return response.json();
+}
+
+// Parse CovJSON response and identify snow forecasts for each location
+function parseSnowForecasts(
+	covjson: CovJsonResponse,
+	locations: Location[]
+): SnowForecast[] {
+	const range = covjson.ranges.categorical_snow_surface;
+	const values = range.values;
+
+	// Get timestamps - handle nested array if present
+	let timestamps: string[];
+	const tValues = covjson.domain.axes.t.values;
+	if (Array.isArray(tValues[0])) {
+		timestamps = (tValues as string[][]).flat();
+	} else {
+		timestamps = tValues as string[];
+	}
+
+	const nTimesteps = timestamps.length;
+	const nPoints = locations.length;
+
+	const forecasts: SnowForecast[] = [];
+
+	for (let p = 0; p < nPoints; p++) {
+		const snowTimestamps: string[] = [];
+
+		for (let t = 0; t < nTimesteps; t++) {
+			// Row-major indexing: values[t * n_points + p]
+			const idx = t * nPoints + p;
+			if (values[idx] === 1) {
+				snowTimestamps.push(timestamps[t]);
+			}
+		}
+
+		forecasts.push({
+			location: locations[p],
+			snowTimestamps,
+		});
+	}
+
+	return forecasts;
+}
+
+// Format and log snow forecast results
+function logSnowForecasts(forecasts: SnowForecast[], initTime: string): void {
+	console.log("\n=== Snow Forecast Check ===");
+	console.log(`Init time: ${initTime}`);
+	console.log(`Locations checked: ${forecasts.length}\n`);
+
+	for (const forecast of forecasts) {
+		const { location, snowTimestamps } = forecast;
+		console.log(
+			`Location "${location.name}" (${location.lat}, ${location.lon}):`
+		);
+
+		if (snowTimestamps.length > 0) {
+			console.log(`  Snow forecast at: ${snowTimestamps.join(", ")}`);
+		} else {
+			console.log("  No snow in forecast");
+		}
+	}
+
+	console.log("\n=== End Snow Forecast Check ===\n");
+}
+
 const app = new Hono<{ Bindings: Env }>();
 
 // Health check endpoint
@@ -43,17 +208,7 @@ app.post("/api/auth/validate", async (c) => {
 
 // List all locations
 app.get("/api/locations", async (c) => {
-	const kv = c.env.SNOW_LOCATIONS;
-	const list = await kv.list();
-	const locations: Location[] = [];
-
-	for (const key of list.keys) {
-		const value = await kv.get(key.name);
-		if (value) {
-			locations.push(JSON.parse(value));
-		}
-	}
-
+	const locations = await getAllLocations(c.env.SNOW_LOCATIONS);
 	return c.json({ locations });
 });
 
@@ -90,10 +245,65 @@ app.delete("/api/locations/:id", async (c) => {
 // Webhook endpoint for forecast notifications
 app.post("/api/on-forecast-update", async (c) => {
 	const payload = await c.req.json();
+	console.log(
+		"Received forecast notification:",
+		JSON.stringify(payload, null, 2)
+	);
 
-	console.log("Received forecast notification:", JSON.stringify(payload, null, 2));
+	try {
+		// 1. Fetch all locations from KV
+		const locations = await getAllLocations(c.env.SNOW_LOCATIONS);
 
-	return c.json({ success: true, message: "Webhook received" });
+		if (locations.length === 0) {
+			console.log("No locations configured, skipping EDR query");
+			return c.json({ success: true, message: "No locations to check" });
+		}
+
+		console.log(`Checking ${locations.length} locations for snow...`);
+
+		const fluxToken = c.env.FLUX_TOKEN;
+		if (!fluxToken) {
+			throw new Error("FLUX_TOKEN secret is not configured");
+		}
+
+		// 2. Get latest init_time from EDR metadata
+		const initTime = await getLatestInitTime(fluxToken);
+		console.log(`Latest init_time: ${initTime}`);
+
+		// 3. Build MULTIPOINT WKT string
+		const coords = buildMultipointWkt(locations);
+		console.log(`MULTIPOINT coords: ${coords}`);
+
+		// 4. Query EDR position endpoint
+		const covjson = await queryEdrPosition(coords, initTime, fluxToken);
+
+		// 5. Parse results and identify snow forecasts
+		const forecasts = parseSnowForecasts(covjson, locations);
+
+		// 6. Log formatted output
+		logSnowForecasts(forecasts, initTime);
+
+		// Return summary in response
+		const locationsWithSnow = forecasts.filter(
+			(f) => f.snowTimestamps.length > 0
+		);
+		return c.json({
+			success: true,
+			message: "Forecast check complete",
+			initTime,
+			locationsChecked: locations.length,
+			locationsWithSnow: locationsWithSnow.length,
+		});
+	} catch (error) {
+		console.error("Error checking snow forecast:", error);
+		return c.json(
+			{
+				success: false,
+				error: error instanceof Error ? error.message : "Unknown error",
+			},
+			500
+		);
+	}
 });
 
 export default app;

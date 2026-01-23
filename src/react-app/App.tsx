@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import {
 	Box,
 	Button,
+	Code,
 	Container,
 	Divider,
 	Group,
+	Modal,
 	Paper,
 	PasswordInput,
 	Stack,
@@ -13,18 +15,16 @@ import {
 	TextInput,
 	Title,
 } from "@mantine/core";
-
-interface Location {
-	id: string;
-	name: string;
-	lat: number;
-	lon: number;
-}
-
-interface User {
-	email?: string;
-	name?: string;
-}
+import { useDisclosure } from "@mantine/hooks";
+import {
+	useValidateToken,
+	useLocations,
+	useAddLocation,
+	useDeleteLocation,
+	useTestWebhook,
+	type User,
+	type WebhookResponse,
+} from "./api";
 
 function App() {
 	const [token, setToken] = useState<string>(() => {
@@ -32,57 +32,53 @@ function App() {
 	});
 	const [user, setUser] = useState<User | null>(null);
 	const [isAuthenticated, setIsAuthenticated] = useState(false);
-	const [authError, setAuthError] = useState("");
-	const [isLoading, setIsLoading] = useState(false);
 
-	const [locations, setLocations] = useState<Location[]>([]);
 	const [newName, setNewName] = useState("");
 	const [newLat, setNewLat] = useState("");
 	const [newLon, setNewLon] = useState("");
 	const [locationError, setLocationError] = useState("");
 
+	const [modalOpened, { open: openModal, close: closeModal }] =
+		useDisclosure(false);
+	const [webhookResult, setWebhookResult] = useState<WebhookResponse | null>(
+		null
+	);
+
+	const validateTokenMutation = useValidateToken();
+	const locationsQuery = useLocations(isAuthenticated);
+	const addLocationMutation = useAddLocation();
+	const deleteLocationMutation = useDeleteLocation();
+	const testWebhookMutation = useTestWebhook();
+
 	useEffect(() => {
 		const savedToken = localStorage.getItem("arraylake_token");
 		if (savedToken) {
-			validateToken(savedToken);
-		}
-	}, []);
-
-	const validateToken = async (tokenToValidate: string) => {
-		setIsLoading(true);
-		setAuthError("");
-
-		try {
-			const response = await fetch("/api/auth/validate", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ token: tokenToValidate }),
+			validateTokenMutation.mutate(savedToken, {
+				onSuccess: (data) => {
+					setUser(data.user);
+					setIsAuthenticated(true);
+				},
+				onError: () => {
+					localStorage.removeItem("arraylake_token");
+				},
 			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				setAuthError(data.error || "Invalid token");
-				setIsAuthenticated(false);
-				localStorage.removeItem("arraylake_token");
-			} else {
-				setUser(data.user);
-				setIsAuthenticated(true);
-				localStorage.setItem("arraylake_token", tokenToValidate);
-				fetchLocations();
-			}
-		} catch {
-			setAuthError("Failed to validate token");
-			setIsAuthenticated(false);
-		} finally {
-			setIsLoading(false);
 		}
-	};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	const handleLogin = (e: React.FormEvent) => {
 		e.preventDefault();
 		if (token.trim()) {
-			validateToken(token.trim());
+			validateTokenMutation.mutate(token.trim(), {
+				onSuccess: (data) => {
+					setUser(data.user);
+					setIsAuthenticated(true);
+					localStorage.setItem("arraylake_token", token.trim());
+				},
+				onError: () => {
+					localStorage.removeItem("arraylake_token");
+				},
+			});
 		}
 	};
 
@@ -91,17 +87,6 @@ function App() {
 		setToken("");
 		setUser(null);
 		setIsAuthenticated(false);
-		setLocations([]);
-	};
-
-	const fetchLocations = async () => {
-		try {
-			const response = await fetch("/api/locations");
-			const data = await response.json();
-			setLocations(data.locations || []);
-		} catch {
-			console.error("Failed to fetch locations");
-		}
 	};
 
 	const handleAddLocation = async (e: React.FormEvent) => {
@@ -124,40 +109,42 @@ function App() {
 			return;
 		}
 
-		try {
-			const response = await fetch("/api/locations", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name: newName.trim(), lat, lon }),
-			});
-
-			if (response.ok) {
-				setNewName("");
-				setNewLat("");
-				setNewLon("");
-				fetchLocations();
-			} else {
-				const data = await response.json();
-				setLocationError(data.error || "Failed to add location");
-			}
-		} catch {
-			setLocationError("Failed to add location");
-		}
+		addLocationMutation.mutate(
+			{ name: newName.trim(), lat, lon },
+			{
+				onSuccess: () => {
+					setNewName("");
+					setNewLat("");
+					setNewLon("");
+				},
+				onError: (error) => {
+					setLocationError(error.message);
+				},
+			},
+		);
 	};
 
-	const handleDeleteLocation = async (id: string) => {
-		try {
-			const response = await fetch(`/api/locations/${id}`, {
-				method: "DELETE",
-			});
-
-			if (response.ok) {
-				fetchLocations();
-			}
-		} catch {
-			console.error("Failed to delete location");
-		}
+	const handleDeleteLocation = (id: string) => {
+		deleteLocationMutation.mutate(id);
 	};
+
+	const handleTestWebhook = () => {
+		testWebhookMutation.mutate(undefined, {
+			onSuccess: (data) => {
+				setWebhookResult(data);
+				openModal();
+			},
+			onError: (error) => {
+				setWebhookResult({
+					success: false,
+					error: error.message,
+				});
+				openModal();
+			},
+		});
+	};
+
+	const locations = locationsQuery.data ?? [];
 
 	if (!isAuthenticated) {
 		return (
@@ -185,19 +172,19 @@ function App() {
 								placeholder="Enter your token"
 								value={token}
 								onChange={(e) => setToken(e.currentTarget.value)}
-								disabled={isLoading}
+								disabled={validateTokenMutation.isPending}
 							/>
 							<Button
 								type="submit"
 								fullWidth
-								loading={isLoading}
+								loading={validateTokenMutation.isPending}
 								disabled={!token.trim()}
 							>
 								Login
 							</Button>
-							{authError && (
+							{validateTokenMutation.error && (
 								<Text c="red" size="sm">
-									{authError}
+									{validateTokenMutation.error.message}
 								</Text>
 							)}
 						</Stack>
@@ -227,11 +214,19 @@ function App() {
 
 				<Divider mb="xl" />
 
-				<Title order={2} mb="md">
-					Locations
-				</Title>
+				<Group justify="space-between" mb="md">
+					<Title order={2}>Locations</Title>
+					<Button
+						variant="light"
+						size="sm"
+						onClick={handleTestWebhook}
+						loading={testWebhookMutation.isPending}
+					>
+						Test Forecast
+					</Button>
+				</Group>
 
-				<Paper p="md" mb="lg">
+				<Paper py="md" mb="lg">
 					<form onSubmit={handleAddLocation}>
 						<Group align="flex-end">
 							<TextInput
@@ -255,7 +250,9 @@ function App() {
 								onChange={(e) => setNewLon(e.currentTarget.value)}
 								style={{ flex: 1 }}
 							/>
-							<Button type="submit">Add Location</Button>
+							<Button type="submit" loading={addLocationMutation.isPending}>
+								Add Location
+							</Button>
 						</Group>
 						{locationError && (
 							<Text c="red" size="sm" mt="sm">
@@ -265,7 +262,11 @@ function App() {
 					</form>
 				</Paper>
 
-				{locations.length === 0 ? (
+				{locationsQuery.isLoading ? (
+					<Text c="dimmed" fs="italic">
+						Loading locations...
+					</Text>
+				) : locations.length === 0 ? (
 					<Text c="dimmed" fs="italic">
 						No locations added yet.
 					</Text>
@@ -291,6 +292,10 @@ function App() {
 											color="red"
 											size="xs"
 											onClick={() => handleDeleteLocation(loc.id)}
+											loading={
+												deleteLocationMutation.isPending &&
+												deleteLocationMutation.variables === loc.id
+											}
 										>
 											Delete
 										</Button>
@@ -300,6 +305,54 @@ function App() {
 						</Table.Tbody>
 					</Table>
 				)}
+
+				<Modal
+					opened={modalOpened}
+					onClose={closeModal}
+					title="Forecast Test Result"
+					size="md"
+				>
+					{webhookResult && (
+						<Stack>
+							<Group>
+								<Text fw={500}>Status:</Text>
+								<Text c={webhookResult.success ? "green" : "red"}>
+									{webhookResult.success ? "Success" : "Failed"}
+								</Text>
+							</Group>
+							{webhookResult.message && (
+								<Group>
+									<Text fw={500}>Message:</Text>
+									<Text>{webhookResult.message}</Text>
+								</Group>
+							)}
+							{webhookResult.error && (
+								<Group>
+									<Text fw={500}>Error:</Text>
+									<Text c="red">{webhookResult.error}</Text>
+								</Group>
+							)}
+							{webhookResult.initTime && (
+								<Group>
+									<Text fw={500}>Init Time:</Text>
+									<Code>{webhookResult.initTime}</Code>
+								</Group>
+							)}
+							{webhookResult.locationsChecked !== undefined && (
+								<Group>
+									<Text fw={500}>Locations Checked:</Text>
+									<Text>{webhookResult.locationsChecked}</Text>
+								</Group>
+							)}
+							{webhookResult.locationsWithSnow !== undefined && (
+								<Group>
+									<Text fw={500}>Locations with Snow:</Text>
+									<Text>{webhookResult.locationsWithSnow}</Text>
+								</Group>
+							)}
+						</Stack>
+					)}
+				</Modal>
 			</Container>
 		</Box>
 	);
