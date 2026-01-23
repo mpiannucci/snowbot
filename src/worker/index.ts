@@ -82,4 +82,13 @@ app.delete("/api/locations/:id", async (c) => {
 	return c.json({ success: true });
 });
 
+// Webhook endpoint for forecast notifications
+app.post("", async (c) => {
+	const payload = await c.req.json();
+
+	console.log("Received forecast notification:", JSON.stringify(payload, null, 2));
+
+	return c.json({ success: true, message: "Webhook received" });
+});
+
 export default app;
