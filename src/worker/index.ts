@@ -215,6 +215,52 @@ function formatWindow(start: Date, end: Date): string {
 	}
 }
 
+// Verify Slack request signature
+async function verifySlackSignature(
+	signature: string | null,
+	timestamp: string | null,
+	body: string,
+	signingSecret: string
+): Promise<boolean> {
+	if (!signature || !timestamp || !signingSecret) return false;
+
+	// Prevent replay attacks (request > 5 minutes old)
+	const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 60 * 5;
+	if (parseInt(timestamp) < fiveMinutesAgo) return false;
+
+	const sigBasestring = `v0:${timestamp}:${body}`;
+	const key = await crypto.subtle.importKey(
+		"raw",
+		new TextEncoder().encode(signingSecret),
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["sign"]
+	);
+	const sig = await crypto.subtle.sign(
+		"HMAC",
+		key,
+		new TextEncoder().encode(sigBasestring)
+	);
+	const expectedSig =
+		"v0=" +
+		Array.from(new Uint8Array(sig))
+			.map((b) => b.toString(16).padStart(2, "0"))
+			.join("");
+
+	return signature === expectedSig;
+}
+
+// Parse Slack command text, handling quoted strings
+function parseSlackCommand(text: string): string[] {
+	const regex = /[^\s"]+|"([^"]*)"/gi;
+	const args: string[] = [];
+	let match;
+	while ((match = regex.exec(text)) !== null) {
+		args.push(match[1] !== undefined ? match[1] : match[0]);
+	}
+	return args;
+}
+
 // Send Slack message with forecast results
 async function sendSlackMessage(
 	locationsWithSnow: SnowForecast[],
@@ -422,6 +468,117 @@ app.post("/api/on-forecast-update", async (c) => {
 			500
 		);
 	}
+});
+
+// Slack slash commands endpoint
+app.post("/api/slack/commands", async (c) => {
+	const body = await c.req.text();
+	const signature = c.req.header("x-slack-signature");
+	const timestamp = c.req.header("x-slack-request-timestamp");
+
+	// Verify request signature
+	const signingSecret = (c.env as Env & { SLACK_SIGNING_SECRET?: string })
+		.SLACK_SIGNING_SECRET;
+	if (
+		!signingSecret ||
+		!(await verifySlackSignature(
+			signature ?? null,
+			timestamp ?? null,
+			body,
+			signingSecret
+		))
+	) {
+		return c.json({ error: "Invalid signature" }, 401);
+	}
+
+	const params = new URLSearchParams(body);
+	const text = params.get("text") || "";
+	const args = parseSlackCommand(text);
+	const action = args[0]?.toLowerCase() || "help";
+
+	// Handle 'add' command
+	if (action === "add") {
+		if (args.length < 4) {
+			return c.json({
+				response_type: "ephemeral",
+				text: 'Usage: `/snowbot add "Location Name" latitude longitude`\nExample: `/snowbot add "Lake Tahoe" 39.0968 -120.0324`',
+			});
+		}
+		const [, name, latStr, lonStr] = args;
+		const lat = parseFloat(latStr);
+		const lon = parseFloat(lonStr);
+		if (
+			isNaN(lat) ||
+			isNaN(lon) ||
+			lat < -90 ||
+			lat > 90 ||
+			lon < -180 ||
+			lon > 180
+		) {
+			return c.json({
+				response_type: "ephemeral",
+				text: "Invalid coordinates. Latitude must be -90 to 90, longitude -180 to 180.",
+			});
+		}
+		const id = crypto.randomUUID();
+		await c.env.SNOW_LOCATIONS.put(id, JSON.stringify({ id, name, lat, lon }));
+		return c.json({
+			response_type: "in_channel",
+			text: `Added location *${name}* (${lat}, ${lon})`,
+		});
+	}
+
+	// Handle 'list' command
+	if (action === "list") {
+		const locations = await getAllLocations(c.env.SNOW_LOCATIONS);
+		if (locations.length === 0) {
+			return c.json({
+				response_type: "ephemeral",
+				text: "No locations configured. Use `/snowbot add` to add one.",
+			});
+		}
+		const list = locations
+			.map((loc) => `• *${loc.name}* — ${loc.lat}, ${loc.lon}`)
+			.join("\n");
+		return c.json({
+			response_type: "ephemeral",
+			text: `*Snow Alert Locations*\n\n${list}`,
+		});
+	}
+
+	// Handle 'remove' command
+	if (action === "remove") {
+		if (args.length < 2) {
+			return c.json({
+				response_type: "ephemeral",
+				text: 'Usage: `/snowbot remove "Location Name"` or `/snowbot remove <id>`',
+			});
+		}
+		const identifier = args[1];
+		const locations = await getAllLocations(c.env.SNOW_LOCATIONS);
+		const location = locations.find(
+			(loc) =>
+				loc.id === identifier ||
+				loc.name.toLowerCase() === identifier.toLowerCase()
+		);
+		if (!location) {
+			return c.json({
+				response_type: "ephemeral",
+				text: `Location "${identifier}" not found.`,
+			});
+		}
+		await c.env.SNOW_LOCATIONS.delete(location.id);
+		return c.json({
+			response_type: "in_channel",
+			text: `Removed location *${location.name}*`,
+		});
+	}
+
+	// Default: help
+	return c.json({
+		response_type: "ephemeral",
+		text: `*Snowbot Commands*\n\n• \`/snowbot add "Name" lat lon\` — Add a location\n• \`/snowbot list\` — List all locations\n• \`/snowbot remove "Name"\` — Remove a location\n• \`/snowbot help\` — Show this help`,
+	});
 });
 
 export default app;

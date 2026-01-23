@@ -45,6 +45,47 @@ Snowbot is a snow forecast notification service:
 
 The worker has access to a KV namespace `SNOW_LOCATIONS` for storing user-defined locations. Run `npm run cf-typegen` after modifying bindings to update types.
 
+## Slack Integration
+
+### Slack App Setup
+
+The Snowbot Slack app enables two features:
+1. **Snow alerts** - Automatic notifications when snow is in the forecast
+2. **Slash commands** - Manage locations directly from Slack
+
+### Required Secrets
+
+Configure these secrets using `wrangler secret put <SECRET_NAME>`:
+
+| Secret | Description |
+|--------|-------------|
+| `SLACK_BOT_TOKEN` | Bot token (xoxb-...) for posting messages |
+| `SLACK_DEFAULT_CHANNEL` | Channel ID for snow alerts |
+| `SLACK_SIGNING_SECRET` | Signing secret for verifying slash command requests |
+
+### Slash Commands
+
+Configure the `/snowbot` slash command in your Slack app settings:
+- **Request URL**: `https://your-worker.workers.dev/api/slack/commands`
+
+Available commands:
+- `/snowbot add "Location Name" latitude longitude` - Add a location
+- `/snowbot list` - List all tracked locations
+- `/snowbot remove "Location Name"` - Remove a location
+- `/snowbot help` - Show available commands
+
+**Example:**
+```
+/snowbot add "Lake Tahoe" 39.0968 -120.0324
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/slack/commands` | POST | Handles slash commands from Slack |
+| `/api/on-forecast-update` | POST | Webhook for forecast updates (sends snow alerts) |
+
 ## UI/Styling Preferences
 
 - Use **Mantine** for UI components (not Tailwind)
