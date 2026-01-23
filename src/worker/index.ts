@@ -9,6 +9,11 @@ interface Location {
 
 const app = new Hono<{ Bindings: Env }>();
 
+// Health check endpoint
+app.get("/api/status", (c) => {
+	return c.json({ status: "ok" });
+});
+
 // Token validation endpoint
 app.post("/api/auth/validate", async (c) => {
 	const body = await c.req.json<{ token: string }>();
@@ -83,7 +88,7 @@ app.delete("/api/locations/:id", async (c) => {
 });
 
 // Webhook endpoint for forecast notifications
-app.post("", async (c) => {
+app.post("/api/on-forecast-update", async (c) => {
 	const payload = await c.req.json();
 
 	console.log("Received forecast notification:", JSON.stringify(payload, null, 2));
