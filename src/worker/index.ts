@@ -151,52 +151,68 @@ function parseSnowForecasts(
 }
 
 // Format hour for display (e.g., "14:00" -> "2pm")
-function formatHour(isoTimestamp: string): string {
-	const timePart = isoTimestamp.split("T")[1];
-	if (!timePart) return isoTimestamp;
-	const hour = parseInt(timePart.slice(0, 2), 10);
+function formatHour(hour: number): string {
 	if (hour === 0) return "12am";
 	if (hour === 12) return "12pm";
 	if (hour < 12) return `${hour}am`;
 	return `${hour - 12}pm`;
 }
 
-// Group consecutive timestamps into windows
+// Format date for display (e.g., "Sunday 1/23")
+function formatDate(date: Date): string {
+	const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+	const dayName = days[date.getUTCDay()];
+	const month = date.getUTCMonth() + 1;
+	const day = date.getUTCDate();
+	return `${dayName} ${month}/${day}`;
+}
+
+// Group consecutive timestamps into windows with dates
 function getSnowWindows(timestamps: string[]): string[] {
 	if (timestamps.length === 0) return [];
 
 	const windows: string[] = [];
-	let windowStart = timestamps[0];
-	let windowEnd = timestamps[0];
+	let windowStart = new Date(timestamps[0]);
+	let windowEnd = new Date(timestamps[0]);
 
 	for (let i = 1; i < timestamps.length; i++) {
-		const prevDate = new Date(windowEnd);
 		const currDate = new Date(timestamps[i]);
-		const hoursDiff = (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60);
+		const hoursDiff = (currDate.getTime() - windowEnd.getTime()) / (1000 * 60 * 60);
 
 		if (hoursDiff <= 1) {
 			// Consecutive hour, extend window
-			windowEnd = timestamps[i];
+			windowEnd = currDate;
 		} else {
 			// Gap found, save current window and start new one
-			if (windowStart === windowEnd) {
-				windows.push(formatHour(windowStart));
-			} else {
-				windows.push(`${formatHour(windowStart)}-${formatHour(windowEnd)}`);
-			}
-			windowStart = timestamps[i];
-			windowEnd = timestamps[i];
+			windows.push(formatWindow(windowStart, windowEnd));
+			windowStart = currDate;
+			windowEnd = currDate;
 		}
 	}
 
 	// Save final window
-	if (windowStart === windowEnd) {
-		windows.push(formatHour(windowStart));
-	} else {
-		windows.push(`${formatHour(windowStart)}-${formatHour(windowEnd)}`);
-	}
+	windows.push(formatWindow(windowStart, windowEnd));
 
 	return windows;
+}
+
+// Format a time window for display
+function formatWindow(start: Date, end: Date): string {
+	const startDate = formatDate(start);
+	const endDate = formatDate(end);
+	const startHour = formatHour(start.getUTCHours());
+	const endHour = formatHour(end.getUTCHours());
+
+	if (startDate === endDate) {
+		// Same day
+		if (start.getTime() === end.getTime()) {
+			return `${startDate} ${startHour}`;
+		}
+		return `${startDate} ${startHour}-${endHour}`;
+	} else {
+		// Spans multiple days
+		return `${startDate} ${startHour} - ${endDate} ${endHour}`;
+	}
 }
 
 // Send Slack message with forecast results
@@ -210,7 +226,8 @@ async function sendSlackMessage(
 		return `:snowflake: *${f.location.name}*\n      :clock3: ${windows.join(", ")}`;
 	});
 
-	const text = `:rotating_light: *Snow Alert!*\n\n${lines.join("\n\n")}`;
+	const delimiter = ":rotating_light::snowman::rotating_light::snowman::rotating_light::snowman::rotating_light::snowman::rotating_light:";
+	const text = `${delimiter}\n\n:snow_cloud: *SNOW ALERT!* :snow_cloud:\n\n${lines.join("\n\n")}\n\n${delimiter}`;
 
 	const response = await fetch("https://slack.com/api/chat.postMessage", {
 		method: "POST",
