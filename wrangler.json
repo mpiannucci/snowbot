@@ -24,7 +24,10 @@
 			"id": "f32477b5b295454bb60ad59284e35a92",
 			"remote": true
 		}
-	]
+	],
+	"vars": {
+		"SLACK_DEFAULT_CHANNEL": "C0ABGRRHW80"
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

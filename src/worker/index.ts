@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { KnownBlock } from "@slack/web-api";
+import { createSlackClient, sendMessage, sendBlockMessage } from "./slack";
 
 interface Location {
 	id: string;
@@ -94,6 +96,83 @@ app.post("/api/on-forecast-update", async (c) => {
 	console.log("Received forecast notification:", JSON.stringify(payload, null, 2));
 
 	return c.json({ success: true, message: "Webhook received" });
+});
+
+/**
+ * Send a simple text message to a Slack channel
+ * POST /api/slack/message
+ * Body: { "channel": "C0ABGRRHW80", "text": "Hello, world!" }
+ */
+app.post("/api/slack/message", async (c) => {
+  const token = c.env.SLACK_BOT_TOKEN;
+  if (!token) {
+    return c.json({ error: "SLACK_BOT_TOKEN not configured" }, 500);
+  }
+
+  const body = await c.req.json<{ channel?: string; text?: string }>();
+  const channel = body.channel || c.env.SLACK_DEFAULT_CHANNEL;
+
+  if (!channel) {
+    return c.json({ error: "Channel is required" }, 400);
+  }
+
+  if (!body.text) {
+    return c.json({ error: "Text is required" }, 400);
+  }
+
+  try {
+    const client = createSlackClient(token);
+    const result = await sendMessage(client, channel, body.text);
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return c.json({ error: message }, 500);
+  }
+});
+
+/**
+ * Send a message with Block Kit blocks to a Slack channel
+ * POST /api/slack/blocks
+ * Body: { "channel": "C0ABGRRHW80", "text": "Fallback text", "blocks": [...] }
+ */
+app.post("/api/slack/blocks", async (c) => {
+  const token = c.env.SLACK_BOT_TOKEN;
+  if (!token) {
+    return c.json({ error: "SLACK_BOT_TOKEN not configured" }, 500);
+  }
+
+  const body = await c.req.json<{
+    channel?: string;
+    text?: string;
+    blocks?: KnownBlock[];
+  }>();
+  const channel = body.channel || c.env.SLACK_DEFAULT_CHANNEL;
+
+  if (!channel) {
+    return c.json({ error: "Channel is required" }, 400);
+  }
+
+  if (!body.text) {
+    return c.json({ error: "Text is required" }, 400);
+  }
+
+  if (!body.blocks || !Array.isArray(body.blocks)) {
+    return c.json({ error: "Blocks array is required" }, 400);
+  }
+
+  try {
+    const client = createSlackClient(token);
+    const result = await sendBlockMessage(
+      client,
+      channel,
+      body.text,
+      body.blocks
+    );
+    return c.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return c.json({ error: message }, 500);
+  }
 });
 
 export default app;
