@@ -12,9 +12,11 @@
 		"publish": true
 	},
 	"dependencies": {
+		"@tailwindcss/vite": "^4.1.18",
 		"hono": "4.11.1",
 		"react": "19.2.1",
-		"react-dom": "19.2.1"
+		"react-dom": "19.2.1",
+		"tailwindcss": "^4.1.18"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "1.15.3",
