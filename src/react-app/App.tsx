@@ -1,4 +1,18 @@
 import { useState, useEffect } from "react";
+import {
+	Box,
+	Button,
+	Container,
+	Divider,
+	Group,
+	Paper,
+	PasswordInput,
+	Stack,
+	Table,
+	Text,
+	TextInput,
+	Title,
+} from "@mantine/core";
 
 interface Location {
 	id: string;
@@ -147,124 +161,147 @@ function App() {
 
 	if (!isAuthenticated) {
 		return (
-			<div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-				<div className="w-full max-w-md">
-					<h1 className="text-3xl font-bold text-slate-900 mb-2">Snowbot</h1>
-					<p className="text-gray-600 mb-8">Snow forecast notification service</p>
+			<Box
+				style={{
+					minHeight: "100vh",
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					backgroundColor: "white",
+				}}
+			>
+				<Container size="xs">
+					<Title order={1} mb="xs">
+						Snowbot
+					</Title>
+					<Text c="dimmed" mb="xl">
+						Snow forecast notification service
+					</Text>
 
-					<form onSubmit={handleLogin} className="space-y-4">
-						<div>
-							<label htmlFor="token" className="block text-sm font-medium text-gray-600 mb-1">
-								Arraylake API Token
-							</label>
-							<input
-								id="token"
-								type="password"
-								value={token}
-								onChange={(e) => setToken(e.target.value)}
+					<form onSubmit={handleLogin}>
+						<Stack>
+							<PasswordInput
+								label="Arraylake API Token"
 								placeholder="Enter your token"
+								value={token}
+								onChange={(e) => setToken(e.currentTarget.value)}
 								disabled={isLoading}
-								className="w-full px-3 py-2 border border-gray-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 disabled:opacity-50"
 							/>
-						</div>
-						<button
-							type="submit"
-							disabled={isLoading || !token.trim()}
-							className="w-full px-4 py-2 bg-purple-500 text-white font-medium rounded-md hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-						>
-							{isLoading ? "Validating..." : "Login"}
-						</button>
-						{authError && <p className="text-red-400 text-sm">{authError}</p>}
+							<Button
+								type="submit"
+								fullWidth
+								loading={isLoading}
+								disabled={!token.trim()}
+							>
+								Login
+							</Button>
+							{authError && (
+								<Text c="red" size="sm">
+									{authError}
+								</Text>
+							)}
+						</Stack>
 					</form>
-				</div>
-			</div>
+				</Container>
+			</Box>
 		);
 	}
 
 	return (
-		<div className="min-h-screen bg-gray-50">
-			<div className="max-w-4xl mx-auto p-6">
-				<header className="flex justify-between items-center mb-8 pb-4 border-b border-gray-200">
-					<h1 className="text-2xl font-bold text-slate-900">Snowbot</h1>
-					<div className="flex items-center gap-4">
-						<span className="text-gray-600">{user?.email || user?.name || "User"}</span>
-						<button
-							onClick={handleLogout}
-							className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-md hover:bg-gray-100"
-						>
+		<Box
+			style={{
+				minHeight: "100vh",
+				backgroundColor: "white",
+			}}
+		>
+			<Container size="md" py="xl">
+				<Group justify="space-between" mb="md">
+					<Title order={1}>Snowbot</Title>
+					<Group>
+						<Text c="dimmed">{user?.email || user?.name || "User"}</Text>
+						<Button variant="default" size="sm" onClick={handleLogout}>
 							Logout
-						</button>
-					</div>
-				</header>
+						</Button>
+					</Group>
+				</Group>
 
-				<section>
-					<h2 className="text-xl font-semibold text-slate-900 mb-4">Locations</h2>
+				<Divider mb="xl" />
 
-					<form onSubmit={handleAddLocation} className="flex gap-2 mb-6 flex-wrap">
-						<input
-							type="text"
-							value={newName}
-							onChange={(e) => setNewName(e.target.value)}
-							placeholder="Location name"
-							className="flex-2 min-w-[150px] px-3 py-2 border border-gray-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-						/>
-						<input
-							type="text"
-							value={newLat}
-							onChange={(e) => setNewLat(e.target.value)}
-							placeholder="Latitude"
-							className="flex-1 min-w-[100px] px-3 py-2 border border-gray-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-						/>
-						<input
-							type="text"
-							value={newLon}
-							onChange={(e) => setNewLon(e.target.value)}
-							placeholder="Longitude"
-							className="flex-1 min-w-[100px] px-3 py-2 border border-gray-200 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-						/>
-						<button
-							type="submit"
-							className="px-4 py-2 bg-purple-500 text-white font-medium rounded-md hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
-						>
-							Add Location
-						</button>
+				<Title order={2} mb="md">
+					Locations
+				</Title>
+
+				<Paper p="md" mb="lg">
+					<form onSubmit={handleAddLocation}>
+						<Group align="flex-end">
+							<TextInput
+								label="Name"
+								placeholder="Location name"
+								value={newName}
+								onChange={(e) => setNewName(e.currentTarget.value)}
+								style={{ flex: 2 }}
+							/>
+							<TextInput
+								label="Latitude"
+								placeholder="e.g. 39.0968"
+								value={newLat}
+								onChange={(e) => setNewLat(e.currentTarget.value)}
+								style={{ flex: 1 }}
+							/>
+							<TextInput
+								label="Longitude"
+								placeholder="e.g. -120.0324"
+								value={newLon}
+								onChange={(e) => setNewLon(e.currentTarget.value)}
+								style={{ flex: 1 }}
+							/>
+							<Button type="submit">Add Location</Button>
+						</Group>
+						{locationError && (
+							<Text c="red" size="sm" mt="sm">
+								{locationError}
+							</Text>
+						)}
 					</form>
-					{locationError && <p className="text-red-400 text-sm mb-4">{locationError}</p>}
+				</Paper>
 
-					{locations.length === 0 ? (
-						<p className="text-gray-500 italic">No locations added yet.</p>
-					) : (
-						<table className="w-full">
-							<thead>
-								<tr className="border-b border-gray-200">
-									<th className="text-left py-3 px-2 text-sm font-medium text-gray-600">Name</th>
-									<th className="text-left py-3 px-2 text-sm font-medium text-gray-600">Latitude</th>
-									<th className="text-left py-3 px-2 text-sm font-medium text-gray-600">Longitude</th>
-									<th className="text-right py-3 px-2 w-20"></th>
-								</tr>
-							</thead>
-							<tbody>
-								{locations.map((loc) => (
-									<tr key={loc.id} className="border-b border-gray-100">
-										<td className="py-3 px-2 text-slate-900">{loc.name}</td>
-										<td className="py-3 px-2 text-slate-900">{loc.lat}</td>
-										<td className="py-3 px-2 text-slate-900">{loc.lon}</td>
-										<td className="py-3 px-2 text-right">
-											<button
-												onClick={() => handleDeleteLocation(loc.id)}
-												className="px-2 py-1 text-xs text-red-400 border border-red-400 rounded hover:bg-red-400 hover:text-white"
-											>
-												Delete
-											</button>
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					)}
-				</section>
-			</div>
-		</div>
+				{locations.length === 0 ? (
+					<Text c="dimmed" fs="italic">
+						No locations added yet.
+					</Text>
+				) : (
+					<Table>
+						<Table.Thead>
+							<Table.Tr>
+								<Table.Th>Name</Table.Th>
+								<Table.Th>Latitude</Table.Th>
+								<Table.Th>Longitude</Table.Th>
+								<Table.Th></Table.Th>
+							</Table.Tr>
+						</Table.Thead>
+						<Table.Tbody>
+							{locations.map((loc) => (
+								<Table.Tr key={loc.id}>
+									<Table.Td>{loc.name}</Table.Td>
+									<Table.Td>{loc.lat}</Table.Td>
+									<Table.Td>{loc.lon}</Table.Td>
+									<Table.Td>
+										<Button
+											variant="outline"
+											color="red"
+											size="xs"
+											onClick={() => handleDeleteLocation(loc.id)}
+										>
+											Delete
+										</Button>
+									</Table.Td>
+								</Table.Tr>
+							))}
+						</Table.Tbody>
+					</Table>
+				)}
+			</Container>
+		</Box>
 	);
 }
 
