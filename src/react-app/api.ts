@@ -71,8 +71,9 @@ export function useAddLocation() {
 				throw new Error(data.error || "Failed to add location");
 			}
 		},
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ["locations"] });
+		onSuccess: async () => {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			await queryClient.invalidateQueries({ queryKey: ["locations"] });
 		},
 	});
 }
@@ -90,8 +91,9 @@ export function useDeleteLocation() {
 				throw new Error("Failed to delete location");
 			}
 		},
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: ["locations"] });
+		onSuccess: async () => {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			await queryClient.invalidateQueries({ queryKey: ["locations"] });
 		},
 	});
 }
