@@ -44,3 +44,13 @@ Snowbot is a snow forecast notification service:
 ### Cloudflare Bindings
 
 The worker has access to a KV namespace `SNOW_LOCATIONS` for storing user-defined locations. Run `npm run cf-typegen` after modifying bindings to update types.
+
+## UI/Styling Preferences
+
+- Use **Mantine** for UI components (not Tailwind)
+- Theme is defined in `src/react-app/theme.ts` with brand colors:
+  - Primary color: purple (#A653FF at shade 5)
+  - Other brand colors: lime, red, orange, green, blue, pink
+- Use **white backgrounds** (not gray)
+- Avoid borders on form containers (no `withBorder` on Paper components)
+- Font family: Roboto
