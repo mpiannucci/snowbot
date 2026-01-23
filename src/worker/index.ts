@@ -150,6 +150,93 @@ function parseSnowForecasts(
 	return forecasts;
 }
 
+// Format hour for display (e.g., "14:00" -> "2pm")
+function formatHour(isoTimestamp: string): string {
+	const timePart = isoTimestamp.split("T")[1];
+	if (!timePart) return isoTimestamp;
+	const hour = parseInt(timePart.slice(0, 2), 10);
+	if (hour === 0) return "12am";
+	if (hour === 12) return "12pm";
+	if (hour < 12) return `${hour}am`;
+	return `${hour - 12}pm`;
+}
+
+// Group consecutive timestamps into windows
+function getSnowWindows(timestamps: string[]): string[] {
+	if (timestamps.length === 0) return [];
+
+	const windows: string[] = [];
+	let windowStart = timestamps[0];
+	let windowEnd = timestamps[0];
+
+	for (let i = 1; i < timestamps.length; i++) {
+		const prevDate = new Date(windowEnd);
+		const currDate = new Date(timestamps[i]);
+		const hoursDiff = (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60);
+
+		if (hoursDiff <= 1) {
+			// Consecutive hour, extend window
+			windowEnd = timestamps[i];
+		} else {
+			// Gap found, save current window and start new one
+			if (windowStart === windowEnd) {
+				windows.push(formatHour(windowStart));
+			} else {
+				windows.push(`${formatHour(windowStart)}-${formatHour(windowEnd)}`);
+			}
+			windowStart = timestamps[i];
+			windowEnd = timestamps[i];
+		}
+	}
+
+	// Save final window
+	if (windowStart === windowEnd) {
+		windows.push(formatHour(windowStart));
+	} else {
+		windows.push(`${formatHour(windowStart)}-${formatHour(windowEnd)}`);
+	}
+
+	return windows;
+}
+
+// Send Slack message with forecast results
+async function sendSlackMessage(
+	locationsWithSnow: SnowForecast[],
+	slackToken: string,
+	channel: string
+): Promise<void> {
+	const lines = locationsWithSnow.map((f) => {
+		const windows = getSnowWindows(f.snowTimestamps);
+		return `:snowflake: *${f.location.name}*\n      :clock3: ${windows.join(", ")}`;
+	});
+
+	const text = `:rotating_light: *Snow Alert!*\n\n${lines.join("\n\n")}`;
+
+	const response = await fetch("https://slack.com/api/chat.postMessage", {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${slackToken}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			channel,
+			text,
+			mrkdwn: true,
+		}),
+	});
+
+	if (!response.ok) {
+		throw new Error(`Slack API error: ${response.status}`);
+	}
+
+	const data = (await response.json()) as { ok: boolean; error?: string };
+	if (!data.ok) {
+		throw new Error(`Slack API error: ${data.error}`);
+	}
+
+	console.log("Slack message sent successfully");
+}
+
 // Format and log snow forecast results
 function logSnowForecasts(forecasts: SnowForecast[], initTime: string): void {
 	console.log("\n=== Snow Forecast Check ===");
@@ -283,10 +370,24 @@ app.post("/api/on-forecast-update", async (c) => {
 		// 6. Log formatted output
 		logSnowForecasts(forecasts, initTime);
 
-		// Return summary in response
+		// 7. Send Slack notification only if there's snow somewhere
 		const locationsWithSnow = forecasts.filter(
 			(f) => f.snowTimestamps.length > 0
 		);
+
+		if (locationsWithSnow.length > 0) {
+			if (c.env.SLACK_BOT_TOKEN && c.env.SLACK_DEFAULT_CHANNEL) {
+				await sendSlackMessage(
+					locationsWithSnow,
+					c.env.SLACK_BOT_TOKEN,
+					c.env.SLACK_DEFAULT_CHANNEL
+				);
+			} else {
+				console.log("Slack not configured, skipping notification");
+			}
+		} else {
+			console.log("No snow in forecast, skipping Slack notification");
+		}
 		return c.json({
 			success: true,
 			message: "Forecast check complete",
