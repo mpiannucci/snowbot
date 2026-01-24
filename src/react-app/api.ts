@@ -71,8 +71,36 @@ export function useAddLocation() {
 				throw new Error(data.error || "Failed to add location");
 			}
 		},
-		onSuccess: async () => {
-			await new Promise((resolve) => setTimeout(resolve, 100));
+		onMutate: async (newLocation) => {
+			// Cancel any outgoing refetches so they don't overwrite our optimistic update
+			await queryClient.cancelQueries({ queryKey: ["locations"] });
+
+			// Snapshot the previous value
+			const previousLocations = queryClient.getQueryData<Location[]>(["locations"]);
+
+			// Optimistically update the cache with a temporary ID
+			queryClient.setQueryData<Location[]>(["locations"], (old) => [
+				...(old || []),
+				{
+					id: `temp-${Date.now()}`,
+					name: newLocation.name,
+					lat: newLocation.lat,
+					lon: newLocation.lon,
+				},
+			]);
+
+			// Return context with the previous value for rollback
+			return { previousLocations };
+		},
+		onError: (_err, _newLocation, context) => {
+			// Rollback to the previous value on error
+			if (context?.previousLocations) {
+				queryClient.setQueryData(["locations"], context.previousLocations);
+			}
+		},
+		onSettled: async () => {
+			// Refetch after a delay to sync with backend (KV is eventually consistent)
+			await new Promise((resolve) => setTimeout(resolve, 500));
 			await queryClient.invalidateQueries({ queryKey: ["locations"] });
 		},
 	});
@@ -91,8 +119,30 @@ export function useDeleteLocation() {
 				throw new Error("Failed to delete location");
 			}
 		},
-		onSuccess: async () => {
-			await new Promise((resolve) => setTimeout(resolve, 100));
+		onMutate: async (deletedId) => {
+			// Cancel any outgoing refetches so they don't overwrite our optimistic update
+			await queryClient.cancelQueries({ queryKey: ["locations"] });
+
+			// Snapshot the previous value
+			const previousLocations = queryClient.getQueryData<Location[]>(["locations"]);
+
+			// Optimistically remove the location from the cache
+			queryClient.setQueryData<Location[]>(["locations"], (old) =>
+				(old || []).filter((location) => location.id !== deletedId)
+			);
+
+			// Return context with the previous value for rollback
+			return { previousLocations };
+		},
+		onError: (_err, _deletedId, context) => {
+			// Rollback to the previous value on error
+			if (context?.previousLocations) {
+				queryClient.setQueryData(["locations"], context.previousLocations);
+			}
+		},
+		onSettled: async () => {
+			// Refetch after a delay to sync with backend (KV is eventually consistent)
+			await new Promise((resolve) => setTimeout(resolve, 500));
 			await queryClient.invalidateQueries({ queryKey: ["locations"] });
 		},
 	});
