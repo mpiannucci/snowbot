@@ -5,10 +5,10 @@ Snow forecast notification service. Get Slack alerts when snow is in the forecas
 ## How it works
 
 ```
-┌─────────────┐         ┌─────────────────┐
-│   Web UI    │────────▶│  KV Store       │
-│  (React)    │         │  (locations)    │
-└─────────────┘         └────────┬────────┘
+                        ┌─────────────────┐
+                        │  KV Store       │
+                        │  (locations)    │
+                        └────────┬────────┘
                                  │
                                  ▼
 ┌─────────────┐         ┌─────────────────┐         ┌─────────────────┐
@@ -16,16 +16,27 @@ Snow forecast notification service. Get Slack alerts when snow is in the forecas
 │ (HRRR data) │         │                 │◀─────────│  EDR API        │
 └─────────────┘         └────────┬────────┘         └─────────────────┘
                                  │
-                                 │ snow forecasted?
-                                 ▼
-                        ┌─────────────────┐
-                        │     Slack       │
-                        └─────────────────┘
+      ┌──────────────────────────┤
+      │                          │ snow forecasted?
+      ▼                          ▼
+┌─────────────────┐     ┌─────────────────┐
+│  Slack commands │     │  Slack alerts   │
+│  /snowbot add   │     │                 │
+│  /snowbot list  │     │                 │
+└─────────────────┘     └─────────────────┘
 ```
 
-1. Add locations (lat/lon) through the web UI
-2. When HRRR forecast data updates, Arraylake sends a webhook to the worker, which queries Earthmover EDR for each location
-3. If snow is forecasted, a Slack notification is sent
+1. Add locations via Slack: `/snowbot add "Lake Tahoe" 39.0968 -120.0324`
+2. When HRRR forecast data updates, Arraylake sends a webhook to the worker
+3. Worker queries Earthmover EDR for snow forecast at each location
+4. If snow is forecasted, a Slack notification is sent
+
+### Slack commands
+
+- `/snowbot add "Name" lat lon` - Add a location
+- `/snowbot list` - List all locations
+- `/snowbot remove "Name"` - Remove a location
+- `/snowbot help` - Show help
 
 ### Example Slack notification
 
@@ -55,3 +66,12 @@ npm run dev
 ```bash
 npm run deploy
 ```
+
+## Configuration
+
+Set these secrets via `wrangler secret put <SECRET_NAME>`:
+
+- `SLACK_BOT_TOKEN` - Bot token for posting messages
+- `SLACK_DEFAULT_CHANNEL` - Channel ID for snow alerts
+- `SLACK_SIGNING_SECRET` - For verifying slash commands
+- `FLUX_TOKEN` - Earthmover EDR API token
