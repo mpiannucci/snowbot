@@ -342,14 +342,6 @@ app.post("/api/slack/commands", async (c) => {
 			});
 		}
 
-		const geoapifyKey = (c.env as Env & { GEOAPIFY_API_KEY?: string }).GEOAPIFY_API_KEY;
-		if (!geoapifyKey) {
-			return c.json({
-				response_type: "ephemeral",
-				text: "Map feature not configured. GEOAPIFY_API_KEY secret is required.",
-			});
-		}
-
 		// Query EDR for snow forecasts
 		const snowLocationIds: Set<string> = new Set();
 		const fluxToken = c.env.FLUX_TOKEN;
@@ -397,17 +389,18 @@ app.post("/api/slack/commands", async (c) => {
 		else if (maxDiff > 1) zoom = 8;
 		else if (maxDiff > 0.5) zoom = 9;
 
-		// Build Geoapify static map URL with markers
-		// Snow locations get blue snowflake icon, others get red pin
-		const markers = locations.map((loc) => {
-			const hasSnow = snowLocationIds.has(loc.id);
-			// Geoapify marker format: lonlat:lon,lat;icon:icon-name;color:hex;size:size
-			const color = hasSnow ? "%2300bfff" : "%23ff6b6b"; // cyan for snow, coral for no snow
-			const iconType = hasSnow ? "ice" : "pin";
-			return `lonlat:${loc.lon},${loc.lat};type:awesome;color:${color};icon:${iconType};iconsize:large`;
-		}).join("|");
+		// Build markers for OSM static map service (free, no API key required)
+		// Format: lat,lon,color (lightblue for snow, red for no snow)
+		const markers = locations
+			.map((loc) => {
+				const hasSnow = snowLocationIds.has(loc.id);
+				const color = hasSnow ? "lightblue" : "red";
+				return `${loc.lat},${loc.lon},${color}`;
+			})
+			.join("|");
 
-		const mapUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=800&height=600&center=lonlat:${centerLon},${centerLat}&zoom=${zoom}&marker=${markers}&apiKey=${geoapifyKey}`;
+		// Use free OpenStreetMap static map service
+		const mapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${centerLat},${centerLon}&zoom=${zoom}&size=800x600&markers=${markers}`;
 
 		// Build location list with snowflake for locations with snow
 		const locationList = locations

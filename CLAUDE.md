@@ -56,7 +56,6 @@ Configure these secrets using `wrangler secret put <SECRET_NAME>`:
 | `SLACK_DEFAULT_CHANNEL` | Channel ID for snow alerts |
 | `SLACK_SIGNING_SECRET` | Signing secret for verifying slash command requests |
 | `FLUX_TOKEN` | Token for Earthmover EDR API |
-| `GEOAPIFY_API_KEY` | API key for Geoapify static maps (free tier: 3000 req/day) |
 
 ### Slash Commands
 
