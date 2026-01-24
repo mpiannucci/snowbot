@@ -342,8 +342,16 @@ app.post("/api/slack/commands", async (c) => {
 			});
 		}
 
+		const geoapifyKey = (c.env as Env & { GEOAPIFY_API_KEY?: string }).GEOAPIFY_API_KEY;
+		if (!geoapifyKey) {
+			return c.json({
+				response_type: "ephemeral",
+				text: "Map feature not configured. GEOAPIFY_API_KEY secret is required.",
+			});
+		}
+
 		// Query EDR for snow forecasts
-		let snowLocationIds: Set<string> = new Set();
+		const snowLocationIds: Set<string> = new Set();
 		const fluxToken = c.env.FLUX_TOKEN;
 		if (fluxToken) {
 			try {
@@ -351,11 +359,11 @@ app.post("/api/slack/commands", async (c) => {
 				const coords = buildMultipointWkt(locations);
 				const covjson = await queryEdrPosition(coords, initTime, fluxToken);
 				const forecasts = parseSnowForecasts(covjson, locations);
-				snowLocationIds = new Set(
-					forecasts
-						.filter((f) => f.snowTimestamps.length > 0)
-						.map((f) => f.location.id)
-				);
+				for (const f of forecasts) {
+					if (f.snowTimestamps.length > 0) {
+						snowLocationIds.add(f.location.id);
+					}
+				}
 			} catch (error) {
 				console.error("Error fetching snow forecasts for map:", error);
 			}
@@ -373,7 +381,7 @@ app.post("/api/slack/commands", async (c) => {
 		const latPadding = Math.max((maxLat - minLat) * 0.2, 0.5);
 		const lonPadding = Math.max((maxLon - minLon) * 0.2, 0.5);
 
-		// Generate OpenStreetMap link that shows the bounds
+		// Calculate center
 		const centerLat = (minLat + maxLat) / 2;
 		const centerLon = (minLon + maxLon) / 2;
 
@@ -389,21 +397,31 @@ app.post("/api/slack/commands", async (c) => {
 		else if (maxDiff > 1) zoom = 8;
 		else if (maxDiff > 0.5) zoom = 9;
 
-		const osmUrl = `https://www.openstreetmap.org/#map=${zoom}/${centerLat.toFixed(4)}/${centerLon.toFixed(4)}`;
+		// Build Geoapify static map URL with markers
+		// Snow locations get blue snowflake icon, others get red pin
+		const markers = locations.map((loc) => {
+			const hasSnow = snowLocationIds.has(loc.id);
+			// Geoapify marker format: lonlat:lon,lat;icon:icon-name;color:hex;size:size
+			const color = hasSnow ? "%2300bfff" : "%23ff6b6b"; // cyan for snow, coral for no snow
+			const iconType = hasSnow ? "ice" : "pin";
+			return `lonlat:${loc.lon},${loc.lat};type:awesome;color:${color};icon:${iconType};iconsize:large`;
+		}).join("|");
+
+		const mapUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=800&height=600&center=lonlat:${centerLon},${centerLat}&zoom=${zoom}&marker=${markers}&apiKey=${geoapifyKey}`;
 
 		// Build location list with snowflake for locations with snow
 		const locationList = locations
 			.map((loc) => {
 				const hasSnow = snowLocationIds.has(loc.id);
 				const icon = hasSnow ? ":snowflake:" : ":round_pushpin:";
-				return `${icon} *${loc.name}* (${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)})`;
+				return `${icon} *${loc.name}*`;
 			})
 			.join("\n");
 
 		const snowCount = snowLocationIds.size;
 		const headerText = snowCount > 0
-			? `:world_map: *Snow Alert Locations Map*\n_${snowCount} location${snowCount === 1 ? "" : "s"} with snow in forecast_\n\n${locationList}`
-			: `:world_map: *Snow Alert Locations Map*\n_No snow in forecast_\n\n${locationList}`;
+			? `:world_map: *Snow Alert Locations*\n_${snowCount} location${snowCount === 1 ? "" : "s"} with snow in forecast_`
+			: `:world_map: *Snow Alert Locations*\n_No snow in forecast_`;
 
 		return c.json({
 			response_type: "in_channel",
@@ -416,17 +434,16 @@ app.post("/api/slack/commands", async (c) => {
 					},
 				},
 				{
-					type: "actions",
+					type: "image",
+					image_url: mapUrl,
+					alt_text: "Map showing snow alert locations",
+				},
+				{
+					type: "context",
 					elements: [
 						{
-							type: "button",
-							text: {
-								type: "plain_text",
-								text: "View on OpenStreetMap",
-								emoji: true,
-							},
-							url: osmUrl,
-							action_id: "open_map",
+							type: "mrkdwn",
+							text: locationList,
 						},
 					],
 				},

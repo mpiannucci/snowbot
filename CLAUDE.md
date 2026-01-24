@@ -56,6 +56,7 @@ Configure these secrets using `wrangler secret put <SECRET_NAME>`:
 | `SLACK_DEFAULT_CHANNEL` | Channel ID for snow alerts |
 | `SLACK_SIGNING_SECRET` | Signing secret for verifying slash command requests |
 | `FLUX_TOKEN` | Token for Earthmover EDR API |
+| `GEOAPIFY_API_KEY` | API key for Geoapify static maps (free tier: 3000 req/day) |
 
 ### Slash Commands
 
@@ -65,6 +66,7 @@ Configure the `/snowbot` slash command in your Slack app settings:
 Available commands:
 - `/snowbot add "Location Name" latitude longitude` - Add a location
 - `/snowbot list` - List all tracked locations
+- `/snowbot map` - Show a map with all locations and snow forecast status
 - `/snowbot remove "Location Name"` - Remove a location
 - `/snowbot help` - Show available commands
 
