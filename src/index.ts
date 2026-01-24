@@ -7,7 +7,83 @@ import {
 	parseSnowForecasts,
 } from "./edr";
 import { Location, getAllLocations } from "./locations";
-import { verifySlackSignature, parseSlackCommand, sendSlackMessage } from "./slack";
+import { verifySlackSignature, parseSlackCommand, postSlackMessage } from "./slack";
+
+// Format hour for display (e.g., "14:00" -> "2pm")
+function formatHour(hour: number): string {
+	if (hour === 0) return "12am";
+	if (hour === 12) return "12pm";
+	if (hour < 12) return `${hour}am`;
+	return `${hour - 12}pm`;
+}
+
+// Format date for display (e.g., "Sunday 1/23")
+function formatDate(date: Date): string {
+	const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+	const dayName = days[date.getUTCDay()];
+	const month = date.getUTCMonth() + 1;
+	const day = date.getUTCDate();
+	return `${dayName} ${month}/${day}`;
+}
+
+// Format a time window for display
+function formatWindow(start: Date, end: Date): string {
+	const startDate = formatDate(start);
+	const endDate = formatDate(end);
+	const startHour = formatHour(start.getUTCHours());
+	const endHour = formatHour(end.getUTCHours());
+
+	if (startDate === endDate) {
+		// Same day
+		if (start.getTime() === end.getTime()) {
+			return `${startDate} ${startHour}`;
+		}
+		return `${startDate} ${startHour}-${endHour}`;
+	} else {
+		// Spans multiple days
+		return `${startDate} ${startHour} - ${endDate} ${endHour}`;
+	}
+}
+
+// Group consecutive timestamps into windows with dates
+function getSnowWindows(timestamps: string[]): string[] {
+	if (timestamps.length === 0) return [];
+
+	const windows: string[] = [];
+	let windowStart = new Date(timestamps[0]);
+	let windowEnd = new Date(timestamps[0]);
+
+	for (let i = 1; i < timestamps.length; i++) {
+		const currDate = new Date(timestamps[i]);
+		const hoursDiff = (currDate.getTime() - windowEnd.getTime()) / (1000 * 60 * 60);
+
+		if (hoursDiff <= 1) {
+			// Consecutive hour, extend window
+			windowEnd = currDate;
+		} else {
+			// Gap found, save current window and start new one
+			windows.push(formatWindow(windowStart, windowEnd));
+			windowStart = currDate;
+			windowEnd = currDate;
+		}
+	}
+
+	// Save final window
+	windows.push(formatWindow(windowStart, windowEnd));
+
+	return windows;
+}
+
+// Format snow alert message for Slack
+function formatSnowAlertMessage(locationsWithSnow: SnowForecast[]): string {
+	const lines = locationsWithSnow.map((f) => {
+		const windows = getSnowWindows(f.snowTimestamps);
+		return `:snowflake: *${f.location.name}*\n      :clock3: ${windows.join(", ")}`;
+	});
+
+	const delimiter = ":rotating_light::snowman::rotating_light::snowman::rotating_light::snowman::rotating_light::snowman::rotating_light:";
+	return `${delimiter}\n\n:snow_cloud: *SNOW ALERT!* :snow_cloud:\n\n${lines.join("\n\n")}\n\n${delimiter}`;
+}
 
 // Format and log snow forecast results
 function logSnowForecasts(forecasts: SnowForecast[], initTime: string): void {
@@ -149,8 +225,9 @@ app.post("/api/on-forecast-update", async (c) => {
 
 		if (locationsWithSnow.length > 0) {
 			if (c.env.SLACK_BOT_TOKEN && c.env.SLACK_DEFAULT_CHANNEL) {
-				await sendSlackMessage(
-					locationsWithSnow,
+				const message = formatSnowAlertMessage(locationsWithSnow);
+				await postSlackMessage(
+					message,
 					c.env.SLACK_BOT_TOKEN,
 					c.env.SLACK_DEFAULT_CHANNEL
 				);
