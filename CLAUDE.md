@@ -4,31 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build and Development Commands
 
-- `npm run dev` - Start development server with HMR (http://localhost:5173)
-- `npm run build` - TypeScript check and Vite production build
+- `npm run dev` - Start local development server (via Wrangler)
+- `npm run build` - TypeScript check
 - `npm run lint` - Run ESLint
-- `npm run preview` - Build and preview production locally
 - `npm run deploy` - Deploy to Cloudflare Workers (via Wrangler)
-- `npm run check` - Full validation: TypeScript, build, and deploy dry-run
+- `npm run check` - Full validation: TypeScript and deploy dry-run
 - `npm run cf-typegen` - Generate Cloudflare Worker types (updates `worker-configuration.d.ts`)
 
 ## Application Purpose
 
-Snowbot is a snow forecast notification service:
+Snowbot is a snow forecast notification service powered by a Cloudflare Worker and Slack integration:
 
-1. **React Frontend** - Web app for users to manage locations (lat/lon pairs) stored in the `SNOW_LOCATIONS` KV store
-2. **Worker Backend** - Receives webhooks when upstream HRRR forecast data updates, then:
-   - Retrieves all locations from `SNOW_LOCATIONS` KV
-   - Queries Earthmover EDR endpoint for each location
-   - Sends a Slack message listing all locations with snow in the forecast window
+- Receives webhooks when upstream HRRR forecast data updates
+- Retrieves all locations from `SNOW_LOCATIONS` KV
+- Queries Earthmover EDR endpoint for each location
+- Sends a Slack message listing all locations with snow in the forecast window
+- Provides Slack slash commands for managing locations
 
 ## Architecture
 
 ### Source Structure
-
-- `src/react-app/` - React frontend (Vite-bundled SPA)
-  - Entry point: `main.tsx` → `App.tsx`
-  - Configured via `tsconfig.app.json`
 
 - `src/worker/index.ts` - Hono backend (Cloudflare Worker)
   - API routes defined here
@@ -37,9 +32,9 @@ Snowbot is a snow forecast notification service:
 
 ### Key Configuration Files
 
-- `wrangler.json` - Cloudflare Worker configuration (bindings, assets, compatibility flags)
-- `vite.config.ts` - Vite config with `@cloudflare/vite-plugin` for Worker integration
-- Three TypeScript configs: `tsconfig.app.json` (React), `tsconfig.worker.json` (Worker), `tsconfig.node.json` (build tools)
+- `wrangler.json` - Cloudflare Worker configuration (bindings, compatibility flags)
+- `tsconfig.worker.json` - TypeScript config for Worker code
+- `tsconfig.node.json` - TypeScript config for build tools
 
 ### Cloudflare Bindings
 
@@ -62,6 +57,7 @@ Configure these secrets using `wrangler secret put <SECRET_NAME>`:
 | `SLACK_BOT_TOKEN` | Bot token (xoxb-...) for posting messages |
 | `SLACK_DEFAULT_CHANNEL` | Channel ID for snow alerts |
 | `SLACK_SIGNING_SECRET` | Signing secret for verifying slash command requests |
+| `FLUX_TOKEN` | Token for Earthmover EDR API |
 
 ### Slash Commands
 
@@ -83,15 +79,9 @@ Available commands:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/api/status` | GET | Health check |
 | `/api/slack/commands` | POST | Handles slash commands from Slack |
 | `/api/on-forecast-update` | POST | Webhook for forecast updates (sends snow alerts) |
-
-## UI/Styling Preferences
-
-- Use **Mantine** for UI components (not Tailwind)
-- Theme is defined in `src/react-app/theme.ts` with brand colors:
-  - Primary color: purple (#A653FF at shade 5)
-  - Other brand colors: lime, red, orange, green, blue, pink
-- Use **white backgrounds** (not gray)
-- Avoid borders on form containers (no `withBorder` on Paper components)
-- Font family: Roboto
+| `/api/locations` | GET | List all locations |
+| `/api/locations` | POST | Add a location |
+| `/api/locations/:id` | DELETE | Delete a location |
