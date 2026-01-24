@@ -2,12 +2,9 @@
  * EDR (Environmental Data Retrieval) module for querying Earthmover snow forecasts
  */
 
-export interface Location {
-	id: string;
-	name: string;
-	lat: number;
-	lon: number;
-}
+import type { Location } from "./locations";
+
+export type { Location };
 
 interface EdrMetadata {
 	extent: {

@@ -1,27 +1,12 @@
 import { Hono } from "hono";
 import {
-	Location,
 	SnowForecast,
 	getLatestInitTime,
 	buildMultipointWkt,
 	queryEdrPosition,
 	parseSnowForecasts,
 } from "./edr";
-
-// Helper function to fetch all locations from KV
-async function getAllLocations(kv: KVNamespace): Promise<Location[]> {
-	const list = await kv.list();
-	const locations: Location[] = [];
-
-	for (const key of list.keys) {
-		const value = await kv.get(key.name);
-		if (value) {
-			locations.push(JSON.parse(value));
-		}
-	}
-
-	return locations;
-}
+import { Location, getAllLocations } from "./locations";
 
 // Format hour for display (e.g., "14:00" -> "2pm")
 function formatHour(hour: number): string {
