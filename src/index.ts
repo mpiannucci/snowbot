@@ -1,154 +1,13 @@
 import { Hono } from "hono";
-
-interface Location {
-	id: string;
-	name: string;
-	lat: number;
-	lon: number;
-}
-
-interface EdrMetadata {
-	extent: {
-		init_time: {
-			interval: [string, string];
-		};
-	};
-}
-
-interface CovJsonResponse {
-	domain: {
-		axes: {
-			t: { values: string[] | string[][] };
-			x: { values: number[] | number[][] };
-			y: { values: number[] | number[][] };
-		};
-	};
-	ranges: {
-		categorical_snow_surface: {
-			axisNames: string[];
-			shape: number[];
-			values: number[];
-		};
-	};
-}
-
-interface SnowForecast {
-	location: Location;
-	snowTimestamps: string[];
-}
-
-const EDR_BASE_URL =
-	"https://compute.earthmover.io/v1/services/edr/earthmover/snowbot/main/edr";
-
-// Helper function to fetch all locations from KV
-async function getAllLocations(kv: KVNamespace): Promise<Location[]> {
-	const list = await kv.list();
-	const locations: Location[] = [];
-
-	for (const key of list.keys) {
-		const value = await kv.get(key.name);
-		if (value) {
-			locations.push(JSON.parse(value));
-		}
-	}
-
-	return locations;
-}
-
-// Fetch latest init_time from EDR metadata
-async function getLatestInitTime(fluxToken: string): Promise<string> {
-	const response = await fetch(`${EDR_BASE_URL}/`, {
-		headers: {
-			Authorization: `Bearer ${fluxToken}`,
-		},
-	});
-	if (!response.ok) {
-		throw new Error(`Failed to fetch EDR metadata: ${response.status}`);
-	}
-	const metadata: EdrMetadata = await response.json();
-	// interval[1] contains the latest init_time
-	return metadata.extent.init_time.interval[1];
-}
-
-// Build MULTIPOINT WKT string from locations
-// WKT uses (lon lat) order, not (lat lon)
-function buildMultipointWkt(locations: Location[]): string {
-	const points = locations.map((loc) => `${loc.lon} ${loc.lat}`).join(", ");
-	return `MULTIPOINT(${points})`;
-}
-
-// Query EDR position endpoint with MULTIPOINT coordinates
-async function queryEdrPosition(
-	coords: string,
-	initTime: string,
-	fluxToken: string
-): Promise<CovJsonResponse> {
-	const params = new URLSearchParams({
-		f: "cf_covjson",
-		"parameter-name": "categorical_snow_surface",
-		crs: "EPSG:4326",
-		method: "nearest",
-		init_time: initTime,
-		coords: coords,
-	});
-
-	const url = `${EDR_BASE_URL}/position?${params.toString()}`;
-	console.log("Querying EDR:", url);
-
-	const response = await fetch(url, {
-		headers: {
-			Authorization: `Bearer ${fluxToken}`,
-		},
-	});
-	if (!response.ok) {
-		const text = await response.text();
-		throw new Error(`EDR query failed: ${response.status} - ${text}`);
-	}
-
-	return response.json();
-}
-
-// Parse CovJSON response and identify snow forecasts for each location
-function parseSnowForecasts(
-	covjson: CovJsonResponse,
-	locations: Location[]
-): SnowForecast[] {
-	const range = covjson.ranges.categorical_snow_surface;
-	const values = range.values;
-
-	// Get timestamps - handle nested array if present
-	let timestamps: string[];
-	const tValues = covjson.domain.axes.t.values;
-	if (Array.isArray(tValues[0])) {
-		timestamps = (tValues as string[][]).flat();
-	} else {
-		timestamps = tValues as string[];
-	}
-
-	const nTimesteps = timestamps.length;
-	const nPoints = locations.length;
-
-	const forecasts: SnowForecast[] = [];
-
-	for (let p = 0; p < nPoints; p++) {
-		const snowTimestamps: string[] = [];
-
-		for (let t = 0; t < nTimesteps; t++) {
-			// Row-major indexing: values[t * n_points + p]
-			const idx = t * nPoints + p;
-			if (values[idx] === 1) {
-				snowTimestamps.push(timestamps[t]);
-			}
-		}
-
-		forecasts.push({
-			location: locations[p],
-			snowTimestamps,
-		});
-	}
-
-	return forecasts;
-}
+import {
+	SnowForecast,
+	getLatestInitTime,
+	buildMultipointWkt,
+	queryEdrPosition,
+	parseSnowForecasts,
+} from "./edr";
+import { Location, getAllLocations } from "./locations";
+import { verifySlackSignature, parseSlackCommand, postSlackMessage } from "./slack";
 
 // Format hour for display (e.g., "14:00" -> "2pm")
 function formatHour(hour: number): string {
@@ -165,6 +24,25 @@ function formatDate(date: Date): string {
 	const month = date.getUTCMonth() + 1;
 	const day = date.getUTCDate();
 	return `${dayName} ${month}/${day}`;
+}
+
+// Format a time window for display
+function formatWindow(start: Date, end: Date): string {
+	const startDate = formatDate(start);
+	const endDate = formatDate(end);
+	const startHour = formatHour(start.getUTCHours());
+	const endHour = formatHour(end.getUTCHours());
+
+	if (startDate === endDate) {
+		// Same day
+		if (start.getTime() === end.getTime()) {
+			return `${startDate} ${startHour}`;
+		}
+		return `${startDate} ${startHour}-${endHour}`;
+	} else {
+		// Spans multiple days
+		return `${startDate} ${startHour} - ${endDate} ${endHour}`;
+	}
 }
 
 // Group consecutive timestamps into windows with dates
@@ -196,108 +74,15 @@ function getSnowWindows(timestamps: string[]): string[] {
 	return windows;
 }
 
-// Format a time window for display
-function formatWindow(start: Date, end: Date): string {
-	const startDate = formatDate(start);
-	const endDate = formatDate(end);
-	const startHour = formatHour(start.getUTCHours());
-	const endHour = formatHour(end.getUTCHours());
-
-	if (startDate === endDate) {
-		// Same day
-		if (start.getTime() === end.getTime()) {
-			return `${startDate} ${startHour}`;
-		}
-		return `${startDate} ${startHour}-${endHour}`;
-	} else {
-		// Spans multiple days
-		return `${startDate} ${startHour} - ${endDate} ${endHour}`;
-	}
-}
-
-// Verify Slack request signature
-async function verifySlackSignature(
-	signature: string | null,
-	timestamp: string | null,
-	body: string,
-	signingSecret: string
-): Promise<boolean> {
-	if (!signature || !timestamp || !signingSecret) return false;
-
-	// Prevent replay attacks (request > 5 minutes old)
-	const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 60 * 5;
-	if (parseInt(timestamp) < fiveMinutesAgo) return false;
-
-	const sigBasestring = `v0:${timestamp}:${body}`;
-	const key = await crypto.subtle.importKey(
-		"raw",
-		new TextEncoder().encode(signingSecret),
-		{ name: "HMAC", hash: "SHA-256" },
-		false,
-		["sign"]
-	);
-	const sig = await crypto.subtle.sign(
-		"HMAC",
-		key,
-		new TextEncoder().encode(sigBasestring)
-	);
-	const expectedSig =
-		"v0=" +
-		Array.from(new Uint8Array(sig))
-			.map((b) => b.toString(16).padStart(2, "0"))
-			.join("");
-
-	return signature === expectedSig;
-}
-
-// Parse Slack command text, handling quoted strings
-function parseSlackCommand(text: string): string[] {
-	const regex = /[^\s"]+|"([^"]*)"/gi;
-	const args: string[] = [];
-	let match;
-	while ((match = regex.exec(text)) !== null) {
-		args.push(match[1] !== undefined ? match[1] : match[0]);
-	}
-	return args;
-}
-
-// Send Slack message with forecast results
-async function sendSlackMessage(
-	locationsWithSnow: SnowForecast[],
-	slackToken: string,
-	channel: string
-): Promise<void> {
+// Format snow alert message for Slack
+function formatSnowAlertMessage(locationsWithSnow: SnowForecast[]): string {
 	const lines = locationsWithSnow.map((f) => {
 		const windows = getSnowWindows(f.snowTimestamps);
 		return `:snowflake: *${f.location.name}*\n      :clock3: ${windows.join(", ")}`;
 	});
 
 	const delimiter = ":rotating_light::snowman::rotating_light::snowman::rotating_light::snowman::rotating_light::snowman::rotating_light:";
-	const text = `${delimiter}\n\n:snow_cloud: *SNOW ALERT!* :snow_cloud:\n\n${lines.join("\n\n")}\n\n${delimiter}`;
-
-	const response = await fetch("https://slack.com/api/chat.postMessage", {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${slackToken}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			channel,
-			text,
-			mrkdwn: true,
-		}),
-	});
-
-	if (!response.ok) {
-		throw new Error(`Slack API error: ${response.status}`);
-	}
-
-	const data = (await response.json()) as { ok: boolean; error?: string };
-	if (!data.ok) {
-		throw new Error(`Slack API error: ${data.error}`);
-	}
-
-	console.log("Slack message sent successfully");
+	return `${delimiter}\n\n:snow_cloud: *SNOW ALERT!* :snow_cloud:\n\n${lines.join("\n\n")}\n\n${delimiter}`;
 }
 
 // Format and log snow forecast results
@@ -440,8 +225,9 @@ app.post("/api/on-forecast-update", async (c) => {
 
 		if (locationsWithSnow.length > 0) {
 			if (c.env.SLACK_BOT_TOKEN && c.env.SLACK_DEFAULT_CHANNEL) {
-				await sendSlackMessage(
-					locationsWithSnow,
+				const message = formatSnowAlertMessage(locationsWithSnow);
+				await postSlackMessage(
+					message,
 					c.env.SLACK_BOT_TOKEN,
 					c.env.SLACK_DEFAULT_CHANNEL
 				);
