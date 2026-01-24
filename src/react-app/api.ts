@@ -100,7 +100,7 @@ export function useAddLocation() {
 		},
 		onSettled: async () => {
 			// Refetch after a delay to sync with backend (KV is eventually consistent)
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await new Promise((resolve) => setTimeout(resolve, 2000));
 			await queryClient.invalidateQueries({ queryKey: ["locations"] });
 		},
 	});
@@ -142,7 +142,7 @@ export function useDeleteLocation() {
 		},
 		onSettled: async () => {
 			// Refetch after a delay to sync with backend (KV is eventually consistent)
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			await new Promise((resolve) => setTimeout(resolve, 2000));
 			await queryClient.invalidateQueries({ queryKey: ["locations"] });
 		},
 	});
