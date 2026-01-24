@@ -332,6 +332,108 @@ app.post("/api/slack/commands", async (c) => {
 		});
 	}
 
+	// Handle 'map' command
+	if (action === "map") {
+		const locations = await getAllLocations(c.env.SNOW_LOCATIONS);
+		if (locations.length === 0) {
+			return c.json({
+				response_type: "ephemeral",
+				text: "No locations configured. Use `/snowbot add` to add one.",
+			});
+		}
+
+		// Query EDR for snow forecasts
+		let snowLocationIds: Set<string> = new Set();
+		const fluxToken = c.env.FLUX_TOKEN;
+		if (fluxToken) {
+			try {
+				const initTime = await getLatestInitTime(fluxToken);
+				const coords = buildMultipointWkt(locations);
+				const covjson = await queryEdrPosition(coords, initTime, fluxToken);
+				const forecasts = parseSnowForecasts(covjson, locations);
+				snowLocationIds = new Set(
+					forecasts
+						.filter((f) => f.snowTimestamps.length > 0)
+						.map((f) => f.location.id)
+				);
+			} catch (error) {
+				console.error("Error fetching snow forecasts for map:", error);
+			}
+		}
+
+		// Calculate bounding box for the map
+		const lats = locations.map((loc) => loc.lat);
+		const lons = locations.map((loc) => loc.lon);
+		const minLat = Math.min(...lats);
+		const maxLat = Math.max(...lats);
+		const minLon = Math.min(...lons);
+		const maxLon = Math.max(...lons);
+
+		// Add padding to bounds
+		const latPadding = Math.max((maxLat - minLat) * 0.2, 0.5);
+		const lonPadding = Math.max((maxLon - minLon) * 0.2, 0.5);
+
+		// Generate OpenStreetMap link that shows the bounds
+		const centerLat = (minLat + maxLat) / 2;
+		const centerLon = (minLon + maxLon) / 2;
+
+		// Calculate zoom level based on bounds
+		const latDiff = maxLat - minLat + latPadding * 2;
+		const lonDiff = maxLon - minLon + lonPadding * 2;
+		const maxDiff = Math.max(latDiff, lonDiff);
+		let zoom = 10;
+		if (maxDiff > 20) zoom = 4;
+		else if (maxDiff > 10) zoom = 5;
+		else if (maxDiff > 5) zoom = 6;
+		else if (maxDiff > 2) zoom = 7;
+		else if (maxDiff > 1) zoom = 8;
+		else if (maxDiff > 0.5) zoom = 9;
+
+		const osmUrl = `https://www.openstreetmap.org/#map=${zoom}/${centerLat.toFixed(4)}/${centerLon.toFixed(4)}`;
+
+		// Build location list with snowflake for locations with snow
+		const locationList = locations
+			.map((loc) => {
+				const hasSnow = snowLocationIds.has(loc.id);
+				const icon = hasSnow ? ":snowflake:" : ":round_pushpin:";
+				return `${icon} *${loc.name}* (${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)})`;
+			})
+			.join("\n");
+
+		const snowCount = snowLocationIds.size;
+		const headerText = snowCount > 0
+			? `:world_map: *Snow Alert Locations Map*\n_${snowCount} location${snowCount === 1 ? "" : "s"} with snow in forecast_\n\n${locationList}`
+			: `:world_map: *Snow Alert Locations Map*\n_No snow in forecast_\n\n${locationList}`;
+
+		return c.json({
+			response_type: "in_channel",
+			blocks: [
+				{
+					type: "section",
+					text: {
+						type: "mrkdwn",
+						text: headerText,
+					},
+				},
+				{
+					type: "actions",
+					elements: [
+						{
+							type: "button",
+							text: {
+								type: "plain_text",
+								text: "View on OpenStreetMap",
+								emoji: true,
+							},
+							url: osmUrl,
+							action_id: "open_map",
+						},
+					],
+				},
+			],
+		});
+	}
+
 	// Handle 'remove' command
 	if (action === "remove") {
 		if (args.length < 2) {
@@ -363,7 +465,7 @@ app.post("/api/slack/commands", async (c) => {
 	// Default: help
 	return c.json({
 		response_type: "ephemeral",
-		text: `*Snowbot Commands*\n\n• \`/snowbot add "Name" lat lon\` — Add a location\n• \`/snowbot list\` — List all locations\n• \`/snowbot remove "Name"\` — Remove a location\n• \`/snowbot help\` — Show this help`,
+		text: `*Snowbot Commands*\n\n• \`/snowbot add "Name" lat lon\` — Add a location\n• \`/snowbot list\` — List all locations\n• \`/snowbot map\` — Show locations on a map with snow forecast\n• \`/snowbot remove "Name"\` — Remove a location\n• \`/snowbot help\` — Show this help`,
 	});
 });
 
