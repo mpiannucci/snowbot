@@ -33,7 +33,6 @@ Snowbot is a snow forecast notification service powered by a Cloudflare Worker a
 
 - `wrangler.json` - Cloudflare Worker configuration (bindings, compatibility flags)
 - `tsconfig.json` - TypeScript configuration
-- `tsconfig.node.json` - TypeScript config for build tools
 
 ### Cloudflare Bindings
 
