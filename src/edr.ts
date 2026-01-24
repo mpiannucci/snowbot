@@ -4,8 +4,6 @@
 
 import type { Location } from "./locations";
 
-export type { Location };
-
 interface EdrMetadata {
 	extent: {
 		init_time: {
