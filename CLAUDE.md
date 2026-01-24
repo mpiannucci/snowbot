@@ -27,13 +27,12 @@ Snowbot is a snow forecast notification service powered by a Cloudflare Worker a
 
 - `src/index.ts` - Hono backend (Cloudflare Worker)
   - API routes defined here
-  - Configured via `tsconfig.worker.json`
   - Has access to `Env` bindings (KV namespaces, etc.)
 
 ### Key Configuration Files
 
 - `wrangler.json` - Cloudflare Worker configuration (bindings, compatibility flags)
-- `tsconfig.worker.json` - TypeScript config for Worker code
+- `tsconfig.json` - TypeScript configuration
 - `tsconfig.node.json` - TypeScript config for build tools
 
 ### Cloudflare Bindings
