@@ -389,18 +389,26 @@ app.post("/api/slack/commands", async (c) => {
 		else if (maxDiff > 1) zoom = 8;
 		else if (maxDiff > 0.5) zoom = 9;
 
-		// Build markers for OSM static map service (free, no API key required)
-		// Format: lat,lon,color (lightblue for snow, red for no snow)
+		// Check for Geoapify API key
+		const geoapifyKey = (c.env as Env & { GEOAPIFY_API_KEY?: string }).GEOAPIFY_API_KEY;
+		if (!geoapifyKey) {
+			return c.json({
+				response_type: "ephemeral",
+				text: "Map feature requires GEOAPIFY_API_KEY secret. Get a free key at https://myprojects.geoapify.com/",
+			});
+		}
+
+		// Build markers for Geoapify static map (free tier: 3000 req/day)
+		// Format: lonlat:lon,lat;color:hex;size:size
 		const markers = locations
 			.map((loc) => {
 				const hasSnow = snowLocationIds.has(loc.id);
-				const color = hasSnow ? "lightblue" : "red";
-				return `${loc.lat},${loc.lon},${color}`;
+				const color = hasSnow ? "%2300bfff" : "%23ff4444"; // cyan for snow, red for no snow
+				return `lonlat:${loc.lon},${loc.lat};color:${color};size:large`;
 			})
 			.join("|");
 
-		// Use free OpenStreetMap static map service
-		const mapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${centerLat},${centerLon}&zoom=${zoom}&size=800x600&markers=${markers}`;
+		const mapUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=800&height=500&center=lonlat:${centerLon},${centerLat}&zoom=${zoom}&marker=${markers}&apiKey=${geoapifyKey}`;
 
 		// Build location list with snowflake for locations with snow
 		const locationList = locations
