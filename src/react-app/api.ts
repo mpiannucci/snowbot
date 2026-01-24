@@ -59,7 +59,7 @@ export function useAddLocation() {
 			name: string;
 			lat: number;
 			lon: number;
-		}): Promise<void> => {
+		}): Promise<Location> => {
 			const response = await fetch("/api/locations", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -70,6 +70,9 @@ export function useAddLocation() {
 				const data = await response.json();
 				throw new Error(data.error || "Failed to add location");
 			}
+
+			const data: { location: Location } = await response.json();
+			return data.location;
 		},
 		onMutate: async (newLocation) => {
 			// Cancel any outgoing refetches so they don't overwrite our optimistic update
@@ -78,30 +81,38 @@ export function useAddLocation() {
 			// Snapshot the previous value
 			const previousLocations = queryClient.getQueryData<Location[]>(["locations"]);
 
+			// Create a temporary ID to identify this optimistic entry
+			const tempId = `temp-${Date.now()}`;
+
 			// Optimistically update the cache with a temporary ID
 			queryClient.setQueryData<Location[]>(["locations"], (old) => [
 				...(old || []),
 				{
-					id: `temp-${Date.now()}`,
+					id: tempId,
 					name: newLocation.name,
 					lat: newLocation.lat,
 					lon: newLocation.lon,
 				},
 			]);
 
-			// Return context with the previous value for rollback
-			return { previousLocations };
+			// Return context with the previous value and temp ID for rollback/update
+			return { previousLocations, tempId };
+		},
+		onSuccess: (createdLocation, _variables, context) => {
+			// Replace the temp entry with the real location from the server
+			if (context?.tempId) {
+				queryClient.setQueryData<Location[]>(["locations"], (old) =>
+					(old || []).map((loc) =>
+						loc.id === context.tempId ? createdLocation : loc
+					)
+				);
+			}
 		},
 		onError: (_err, _newLocation, context) => {
 			// Rollback to the previous value on error
 			if (context?.previousLocations) {
 				queryClient.setQueryData(["locations"], context.previousLocations);
 			}
-		},
-		onSettled: async () => {
-			// Refetch after a delay to sync with backend (KV is eventually consistent)
-			await new Promise((resolve) => setTimeout(resolve, 2000));
-			await queryClient.invalidateQueries({ queryKey: ["locations"] });
 		},
 	});
 }
@@ -139,11 +150,6 @@ export function useDeleteLocation() {
 			if (context?.previousLocations) {
 				queryClient.setQueryData(["locations"], context.previousLocations);
 			}
-		},
-		onSettled: async () => {
-			// Refetch after a delay to sync with backend (KV is eventually consistent)
-			await new Promise((resolve) => setTimeout(resolve, 2000));
-			await queryClient.invalidateQueries({ queryKey: ["locations"] });
 		},
 	});
 }
