@@ -67,11 +67,80 @@ npm run dev
 npm run deploy
 ```
 
-## Configuration
+## Setup
+
+### 1. Initialize KV Store
+
+Create a KV namespace to store location data:
+
+```bash
+# Create the KV namespace
+npx wrangler kv namespace create SNOW_LOCATIONS
+
+# Note the ID from the output, then update wrangler.json:
+# "kv_namespaces": [
+#   { "binding": "SNOW_LOCATIONS", "id": "<your-namespace-id>" }
+# ]
+```
+
+For local development, create a preview namespace:
+
+```bash
+npx wrangler kv namespace create SNOW_LOCATIONS --preview
+```
+
+### 2. Create Slack App
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**
+2. Choose **From scratch**, name it "Snowbot", and select your workspace
+
+#### Configure Bot Token Scopes
+
+1. Navigate to **OAuth & Permissions** in the sidebar
+2. Under **Scopes > Bot Token Scopes**, add:
+   - `chat:write` - Send messages
+   - `commands` - Handle slash commands
+
+#### Create Slash Command
+
+1. Navigate to **Slash Commands** in the sidebar
+2. Click **Create New Command**:
+   - **Command**: `/snowbot`
+   - **Request URL**: `https://your-worker.workers.dev/api/slack/commands`
+   - **Short Description**: Manage snow alert locations
+   - **Usage Hint**: `[add|list|remove|help]`
+
+#### Install App to Workspace
+
+1. Navigate to **Install App** in the sidebar
+2. Click **Install to Workspace** and authorize
+3. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+
+#### Get Signing Secret
+
+1. Navigate to **Basic Information** in the sidebar
+2. Under **App Credentials**, copy the **Signing Secret**
+
+#### Get Channel ID
+
+1. In Slack, right-click the channel for snow alerts
+2. Click **View channel details**
+3. Copy the **Channel ID** at the bottom of the modal
+
+### 3. Configure Secrets
 
 Set these secrets via `wrangler secret put <SECRET_NAME>`:
 
-- `SLACK_BOT_TOKEN` - Bot token for posting messages
-- `SLACK_DEFAULT_CHANNEL` - Channel ID for snow alerts
-- `SLACK_SIGNING_SECRET` - For verifying slash commands
-- `FLUX_TOKEN` - Earthmover EDR API token
+```bash
+wrangler secret put SLACK_BOT_TOKEN      # Bot token (xoxb-...)
+wrangler secret put SLACK_DEFAULT_CHANNEL # Channel ID for alerts
+wrangler secret put SLACK_SIGNING_SECRET  # Signing secret from app credentials
+wrangler secret put FLUX_TOKEN            # Earthmover EDR API token
+```
+
+| Secret | Description |
+|--------|-------------|
+| `SLACK_BOT_TOKEN` | Bot token for posting messages |
+| `SLACK_DEFAULT_CHANNEL` | Channel ID for snow alerts |
+| `SLACK_SIGNING_SECRET` | For verifying slash commands |
+| `FLUX_TOKEN` | Earthmover EDR API token |
