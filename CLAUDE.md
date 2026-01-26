@@ -56,6 +56,7 @@ Configure these secrets using `wrangler secret put <SECRET_NAME>`:
 | `SLACK_DEFAULT_CHANNEL` | Channel ID for snow alerts |
 | `SLACK_SIGNING_SECRET` | Signing secret for verifying slash command requests |
 | `FLUX_TOKEN` | Token for Earthmover EDR API |
+| `WEBHOOK_SECRET` | Shared secret for verifying incoming webhooks (via `X-Secret-Token` header) |
 
 ### Slash Commands
 
