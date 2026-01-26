@@ -6,32 +6,44 @@ import {
 	queryEdrPosition,
 	parseSnowForecasts,
 } from "./edr";
-import { Location, getAllLocations } from "./locations";
+import { Location, getAllLocations, lookupTimezone } from "./locations";
 import { verifySlackSignature, parseSlackCommand, postSlackMessage } from "./slack";
 
 // Format hour for display (e.g., "14:00" -> "2pm")
-function formatHour(hour: number): string {
-	if (hour === 0) return "12am";
-	if (hour === 12) return "12pm";
-	if (hour < 12) return `${hour}am`;
-	return `${hour - 12}pm`;
+function formatHour(date: Date, timezone?: string): string {
+	const hour = new Intl.DateTimeFormat("en-US", {
+		hour: "numeric",
+		hour12: false,
+		timeZone: timezone || "UTC",
+	}).format(date);
+	const h = parseInt(hour, 10);
+	if (h === 0) return "12am";
+	if (h === 12) return "12pm";
+	if (h < 12) return `${h}am`;
+	return `${h - 12}pm`;
 }
 
-// Format date for display (e.g., "Sunday 1/23")
-function formatDate(date: Date): string {
-	const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-	const dayName = days[date.getUTCDay()];
-	const month = date.getUTCMonth() + 1;
-	const day = date.getUTCDate();
-	return `${dayName} ${month}/${day}`;
+// Format date for display (e.g., "Sun 1/23")
+function formatDate(date: Date, timezone?: string): string {
+	const formatter = new Intl.DateTimeFormat("en-US", {
+		weekday: "short",
+		month: "numeric",
+		day: "numeric",
+		timeZone: timezone || "UTC",
+	});
+	const parts = formatter.formatToParts(date);
+	const weekday = parts.find((p) => p.type === "weekday")?.value || "";
+	const month = parts.find((p) => p.type === "month")?.value || "";
+	const day = parts.find((p) => p.type === "day")?.value || "";
+	return `${weekday} ${month}/${day}`;
 }
 
 // Format a time window for display
-function formatWindow(start: Date, end: Date): string {
-	const startDate = formatDate(start);
-	const endDate = formatDate(end);
-	const startHour = formatHour(start.getUTCHours());
-	const endHour = formatHour(end.getUTCHours());
+function formatWindow(start: Date, end: Date, timezone?: string): string {
+	const startDate = formatDate(start, timezone);
+	const endDate = formatDate(end, timezone);
+	const startHour = formatHour(start, timezone);
+	const endHour = formatHour(end, timezone);
 
 	if (startDate === endDate) {
 		// Same day
@@ -46,7 +58,7 @@ function formatWindow(start: Date, end: Date): string {
 }
 
 // Group consecutive timestamps into windows with dates
-function getSnowWindows(timestamps: string[]): string[] {
+function getSnowWindows(timestamps: string[], timezone?: string): string[] {
 	if (timestamps.length === 0) return [];
 
 	const windows: string[] = [];
@@ -62,14 +74,14 @@ function getSnowWindows(timestamps: string[]): string[] {
 			windowEnd = currDate;
 		} else {
 			// Gap found, save current window and start new one
-			windows.push(formatWindow(windowStart, windowEnd));
+			windows.push(formatWindow(windowStart, windowEnd, timezone));
 			windowStart = currDate;
 			windowEnd = currDate;
 		}
 	}
 
 	// Save final window
-	windows.push(formatWindow(windowStart, windowEnd));
+	windows.push(formatWindow(windowStart, windowEnd, timezone));
 
 	return windows;
 }
@@ -77,7 +89,7 @@ function getSnowWindows(timestamps: string[]): string[] {
 // Format snow alert message for Slack
 function formatSnowAlertMessage(locationsWithSnow: SnowForecast[]): string {
 	const lines = locationsWithSnow.map((f) => {
-		const windows = getSnowWindows(f.snowTimestamps);
+		const windows = getSnowWindows(f.snowTimestamps, f.location.timezone);
 		return `:snowflake: *${f.location.name}*\n      :clock3: ${windows.join(", ")}`;
 	});
 
@@ -149,15 +161,18 @@ app.get("/api/locations", async (c) => {
 
 // Add a new location
 app.post("/api/locations", async (c) => {
-	const body = await c.req.json<{ name: string; lat: number; lon: number }>();
-	const { name, lat, lon } = body;
+	const body = await c.req.json<{ name: string; lat: number; lon: number; timezone?: string }>();
+	const { name, lat, lon, timezone: providedTimezone } = body;
 
 	if (!name || lat === undefined || lon === undefined) {
 		return c.json({ error: "Name, lat, and lon are required" }, 400);
 	}
 
+	// Auto-detect timezone from coordinates if not provided
+	const timezone = providedTimezone || await lookupTimezone(lat, lon);
+
 	const id = crypto.randomUUID();
-	const location: Location = { id, name, lat, lon };
+	const location: Location = { id, name, lat, lon, timezone };
 
 	await c.env.SNOW_LOCATIONS.put(id, JSON.stringify(location));
 
@@ -306,11 +321,15 @@ app.post("/api/slack/commands", async (c) => {
 				text: "Invalid coordinates. Latitude must be -90 to 90, longitude -180 to 180.",
 			});
 		}
+		// Auto-detect timezone from coordinates
+		const timezone = await lookupTimezone(lat, lon);
 		const id = crypto.randomUUID();
-		await c.env.SNOW_LOCATIONS.put(id, JSON.stringify({ id, name, lat, lon }));
+		const location: Location = { id, name, lat, lon, timezone };
+		await c.env.SNOW_LOCATIONS.put(id, JSON.stringify(location));
+		const tzInfo = timezone ? ` (${timezone})` : "";
 		return c.json({
 			response_type: "in_channel",
-			text: `Added location *${name}* (${lat}, ${lon})`,
+			text: `Added location *${name}* (${lat}, ${lon})${tzInfo}`,
 		});
 	}
 
@@ -324,7 +343,10 @@ app.post("/api/slack/commands", async (c) => {
 			});
 		}
 		const list = locations
-			.map((loc) => `• *${loc.name}* — ${loc.lat}, ${loc.lon}`)
+			.map((loc) => {
+				const tzInfo = loc.timezone ? ` (${loc.timezone})` : "";
+				return `• *${loc.name}* — ${loc.lat}, ${loc.lon}${tzInfo}`;
+			})
 			.join("\n");
 		return c.json({
 			response_type: "ephemeral",
