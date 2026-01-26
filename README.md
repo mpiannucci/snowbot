@@ -136,6 +136,7 @@ wrangler secret put SLACK_BOT_TOKEN      # Bot token (xoxb-...)
 wrangler secret put SLACK_DEFAULT_CHANNEL # Channel ID for alerts
 wrangler secret put SLACK_SIGNING_SECRET  # Signing secret from app credentials
 wrangler secret put FLUX_TOKEN            # Earthmover EDR API token
+wrangler secret put WEBHOOK_SECRET        # Secret for webhook verification
 ```
 
 | Secret | Description |
@@ -144,3 +145,13 @@ wrangler secret put FLUX_TOKEN            # Earthmover EDR API token
 | `SLACK_DEFAULT_CHANNEL` | Channel ID for snow alerts |
 | `SLACK_SIGNING_SECRET` | For verifying slash commands |
 | `FLUX_TOKEN` | Earthmover EDR API token |
+| `WEBHOOK_SECRET` | Shared secret for verifying incoming webhooks |
+
+### 4. Configure Webhook
+
+When configuring the upstream webhook (e.g., Arraylake), include the `X-Secret-Token` header with the value of your `WEBHOOK_SECRET`:
+
+```
+POST /api/on-forecast-update
+X-Secret-Token: <your-webhook-secret>
+```

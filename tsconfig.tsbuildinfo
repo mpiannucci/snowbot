@@ -1,1 +1,1 @@
-{"root":["./src/edr.ts","./src/env.d.ts","./src/index.ts","./src/locations.ts","./src/slack.ts"],"version":"5.8.3"}
+{"root":["./src/edr.ts","./src/index.ts","./src/locations.ts","./src/slack.ts"],"version":"5.8.3"}

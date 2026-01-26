@@ -179,6 +179,12 @@ app.delete("/api/locations/:id", async (c) => {
 
 // Webhook endpoint for forecast notifications
 app.post("/api/on-forecast-update", async (c) => {
+	// Verify webhook secret
+	const secretToken = c.req.header("x-secret-token");
+	if (!c.env.WEBHOOK_SECRET || secretToken !== c.env.WEBHOOK_SECRET) {
+		return c.json({ error: "Unauthorized" }, 401);
+	}
+
 	const payload = await c.req.json();
 	console.log(
 		"Received forecast notification:",
