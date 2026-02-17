@@ -69,6 +69,8 @@ npm run deploy
 
 ## Setup
 
+This app uses `cloudflare` for all infrastructure. Create a `cloudflare` account and install the `wrangler` CLI.
+
 ### 1. Initialize KV Store
 
 Create a KV namespace to store location data:
