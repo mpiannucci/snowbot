@@ -11,14 +11,14 @@ Snow forecast notification service. Get Slack alerts when snow is in the forecas
                         └────────┬────────┘
                                  │
                                  ▼
-┌─────────────┐         ┌─────────────────┐         ┌─────────────────┐
+┌─────────────┐          ┌─────────────────┐          ┌─────────────────┐
 │ Arraylake   │─webhook─▶│     Worker      │─────────▶│  Earthmover     │
-│ (HRRR data) │         │                 │◀─────────│  EDR API        │
-└─────────────┘         └────────┬────────┘         └─────────────────┘
-                                 │
-      ┌──────────────────────────┤
-      │                          │ snow forecasted?
-      ▼                          ▼
+│ (HRRR data) │          │                 │◀─────────│  EDR API        │
+└─────────────┘          └────────┬────────┘          └─────────────────┘
+                                  │
+       ┌──────────────────────────┤
+       │                          │ snow forecasted?
+       ▼                          ▼
 ┌─────────────────┐     ┌─────────────────┐
 │  Slack commands │     │  Slack alerts   │
 │  /snowbot add   │     │                 │
