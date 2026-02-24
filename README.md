@@ -2,6 +2,12 @@
 
 Snow forecast notification service. Get Slack alerts when snow is in the forecast for your saved locations.
 
+## Data Sources
+
+Snow forecast data comes from the [NOAA HRRR (High-Resolution Rapid Refresh)](https://rapidrefresh.noaa.gov/hrrr/) model, made accessible as analysis-ready cloud-optimized data by [dynamical.org](https://dynamical.org/) and served via the [Earthmover](https://earthmover.io/) EDR API.
+
+- **Dataset**: [Snowbot HRRR on Earthmover Marketplace](https://app.earthmover.io/marketplace/6970586155e09e23d5bcbbf2)
+
 ## How it works
 
 ```
