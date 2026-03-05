@@ -11,9 +11,9 @@
 	},
 	"upload_source_maps": true,
 	"kv_namespaces": [
-		{
+	    {
 			"binding": "SNOW_LOCATIONS",
-			"id": "f32477b5b295454bb60ad59284e35a92",
+			"id": "7d99e42f1a8d40178c85a45905c70a64",
 			"remote": true
 		}
 	]

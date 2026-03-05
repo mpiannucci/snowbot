@@ -200,7 +200,13 @@ app.post("/api/on-forecast-update", async (c) => {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
 
-	const payload = await c.req.json();
+	let payload: unknown;
+	try {
+		payload = await c.req.json();
+	} catch {
+		return c.json({ error: "Invalid message body" }, 400);
+	}
+
 	console.log(
 		"Received forecast notification:",
 		JSON.stringify(payload, null, 2)
